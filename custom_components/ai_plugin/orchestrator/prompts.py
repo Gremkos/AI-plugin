@@ -1,10 +1,4 @@
-"""The blocks that make up the system prompt for one turn.
-
-Kept apart from the turn logic because they are pure assembly: what the
-model is told about the time, the house, the user's stored facts and
-where it all is. The mixin exists so these read as methods on the
-Orchestrator, which is how they are called.
-"""
+"""The blocks that make up the system prompt for one turn."""
 
 from __future__ import annotations
 
@@ -21,23 +15,14 @@ from ..const import (
     CONF_TOOL_TIMERS,
     DEFAULT_MEMORY_ENABLED,
     FEATURE_TOOLS,
-    FOLLOW_UP_AUTO,
-    FOLLOW_UP_AUTO_RULE,
     SYSTEM_PROMPT_DEFAULT,
     SYSTEM_PROMPT_VOICE,
     features_off,
-    follow_up_mode,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# The memory section of SYSTEM_PROMPT_DEFAULT and of SYSTEM_PROMPT_VOICE, up to
-# the blank line that ends it. Replaced when the memory is off; the prompts
-# themselves stay one constant each, so an enabled memory changes no byte.
 _MEMORY_RULES_RE = re.compile(r"(?:\[MEMORY TOOLS\]|Memory tools:)\n.*?\n\n", re.S)
-# Without any rule the model confirmed what it could not do: "Remember that I
-# like tea." got "I have noted that you like tea." in 3 of 3 replays. "No tool"
-# leaves room for a memory an MCP server provides.
 MEMORY_OFF_RULE = (
     "Memory:\n"
     "- Nothing is saved between conversations. If the user asks you to remember "
@@ -45,8 +30,6 @@ MEMORY_OFF_RULE = (
     "it was noted, saved, remembered or removed, in any language.\n\n"
 )
 
-
-# The timer section of each prompt, up to the blank line that ends it.
 _TIMER_RULES_RE = re.compile(r"(?:\[TIMERS\]|Timers:)\n.*?\n\n", re.S)
 _SCHEDULE_HEADS = ("[ALARMS, REMINDERS, LATER]", "Alarms, reminders, later:")
 _SCHEDULE_INTRO = "- A timer counts down a length of time and then only rings."
@@ -55,11 +38,7 @@ _BROADCAST_EXAMPLE = " 'tell everyone', 'announce': HassBroadcast."
 
 
 def prune_feature_rules(prompt: str, off: frozenset[str]) -> str:
-    """The prompt without the rules of features switched off (Configure -> Tools).
-
-    Rules for a tool the model does not have make it call that tool anyway, or
-    say it did. With every feature on, the prompt is returned unchanged.
-    """
+    """The prompt without the rules of features switched off (Configure -> Tools)."""
     if not off:
         return prompt
     if CONF_TOOL_TIMERS in off:
@@ -68,7 +47,6 @@ def prune_feature_rules(prompt: str, off: frozenset[str]) -> str:
     kept: list[str] = []
     for line in prompt.split("\n"):
         if _BROADCAST_EXAMPLE in line:
-            # One line holds both messages and announcements.
             if CONF_TOOL_BROADCAST in off:
                 line = line.replace(_BROADCAST_EXAMPLE, "")
             elif CONF_TOOL_MESSAGES in off:
@@ -79,7 +57,6 @@ def prune_feature_rules(prompt: str, off: frozenset[str]) -> str:
         ):
             continue
         kept.append(line)
-    # A section left with nothing but its closing line goes as a whole.
     for i in range(len(kept) - 1, 0, -1):
         if kept[i].startswith(_SCHEDULE_CLOSING) and kept[i - 1] in _SCHEDULE_HEADS:
             end = i + 2 if i + 1 < len(kept) and not kept[i + 1] else i + 1
@@ -94,21 +71,7 @@ class PromptBlocksMixin:
         return self._entry.options.get(CONF_MEMORY_ENABLED, DEFAULT_MEMORY_ENABLED)
 
     async def _build_system_prompt(self, voice_mode: bool) -> str:
-        """Return the STATIC system prompt for this request.
-
-        Only content that is byte-stable across turns belongs here (base
-        prompt, custom prompt, home location — cached after first resolve).
-        Volatile blocks ([CURRENT TIME], [USER FACTS], [LAST ACTION]) go
-        into a late system message via _build_volatile_block instead: a
-        stable prompt head lets Ollama reuse its prompt prefix cache, so
-        each turn only pre-fills the new tokens instead of the whole
-        system prompt + tool schemas + history.
-
-        v0.9.0: per-language trigger hints removed. Modern multilingual
-        LLMs route non-English utterances correctly without pinned hints,
-        and deterministic shortcuts in shortcuts.py handle the
-        load-bearing language-specific behaviour.
-        """
+        """Return the STATIC system prompt for this request."""
         base = SYSTEM_PROMPT_VOICE if voice_mode else SYSTEM_PROMPT_DEFAULT
         if not self._memory_enabled():
             base = _MEMORY_RULES_RE.sub(lambda _: MEMORY_OFF_RULE, base)
@@ -116,8 +79,6 @@ class PromptBlocksMixin:
         location_block = await self._build_location_block()
         custom = self._entry.options.get(CONF_SYSTEM_PROMPT, "").strip()
         parts = [base, location_block]
-        if voice_mode and follow_up_mode(self._entry.options) == FOLLOW_UP_AUTO:
-            parts.insert(1, FOLLOW_UP_AUTO_RULE)
         if custom:
             parts.append(custom)
         return "\n\n".join(p for p in parts if p)
@@ -132,17 +93,7 @@ class PromptBlocksMixin:
         system_prompt: str | None = None,
         tool_tokens: int | None = None,
     ) -> str:
-        """Per-turn context ([CURRENT TIME], [SPEAKER], [USER FACTS], [LAST ACTION]).
-
-        Injected as a system message directly before the newest user turn
-        so the static prompt head above stays cache-stable. [SPEAKER] is
-        present only when voice recognition named the speaker.
-
-        These blocks stay in history for the prompt cache, so [USER FACTS] goes
-        in only when the model can't already see those same facts: repeated every
-        turn, 96 facts added about 2,300 tokens per turn (2026-11-08). It comes
-        back after a change, another speaker, or a summary that replaced it.
-        """
+        """Per-turn context ([CURRENT TIME], [SPEAKER], [USER FACTS], [LAST ACTION])."""
         facts = await self._build_user_facts_block(user_id)
         if (
             facts
@@ -165,15 +116,11 @@ class PromptBlocksMixin:
         return "\n\n".join(p for p in parts if p)
 
     def _build_time_block(self) -> str:
-        """Return a fresh [CURRENT TIME] block in the user's local timezone.
-
-        Computed per-request so small models that ignore tools still answer
-        time questions correctly. Without this block the LLM hallucinates
-        clock readings.
-        """
+        """Return a fresh [CURRENT TIME] block in the user's local timezone."""
         try:
             from datetime import datetime
             from zoneinfo import ZoneInfo
+
             cfg = self._hass.config if self._hass is not None else None
             tz_name = (getattr(cfg, "time_zone", None) or "").strip() if cfg else ""
             now = datetime.now(ZoneInfo(tz_name)) if tz_name else datetime.now().astimezone()
@@ -188,18 +135,12 @@ class PromptBlocksMixin:
             return ""
 
     async def _build_user_facts_block(self, user_id: str | None) -> str:
-        """Render stored user facts as a numbered prompt block.
-
-        Auto-injected on every turn so small LLMs that fail to call the
-        recall tool can still answer questions about previously-saved
-        facts (name, preferences, etc.). The numbered list also doubles
-        as the index reference for the two-step forget(index=N) flow.
-        File I/O runs in the executor to keep the event loop unblocked.
-        """
+        """Render stored user facts as a numbered prompt block."""
         if self._memory is None:
             return ""
         try:
             from ..tools.memory import _memory_path  # noqa: PLC0415
+
             path = _memory_path(self._memory._config_dir, user_id)
             facts = await asyncio.get_running_loop().run_in_executor(
                 None, self._memory._load, path
@@ -210,12 +151,6 @@ class PromptBlocksMixin:
         if not facts:
             return ""
         numbered = "\n".join(f"{i}. {f}" for i, f in enumerate(facts, 1))
-        # Preferences must reach answers on any topic: scoped to "questions
-        # about who they are", a saved "ALWAYS use metric" was ignored for
-        # "what is known about the Megalodon?" (feet in 12/12 replays of the
-        # real turn, metric in 20/20 with this wording; 2026-10-27). The
-        # conversion example is what made the difference, a general rule in
-        # the system prompt alone did not.
         return (
             f"{_FACTS_MARKER}"
             "Facts previously saved by the user. Use them when answering "
@@ -230,18 +165,7 @@ class PromptBlocksMixin:
         )
 
     async def _build_location_block(self) -> str:
-        """Render the resolved home location as a prompt block.
-
-        The block is informational only — it does NOT instruct the model
-        to inject the city into queries; that is handled deterministically
-        in ``web_search.async_search`` based on the ``near_user`` flag and
-        a locality regex. The block tells the model where the user lives
-        so it can answer "where am I?" accurately.
-
-        Renders only fields that resolved. When nothing resolves (no
-        coords, no country, no entity, network offline) the block is
-        omitted entirely — better silence than fabricated geography.
-        """
+        """Render the resolved home location as a prompt block."""
         try:
             data = await self._location.async_resolve()
         except Exception:  # noqa: BLE001
@@ -287,14 +211,7 @@ def _speaker_block(
     memory: bool = True,
     signed_in: str | None = None,
 ) -> str:
-    """[SPEAKER] for this turn. Explicit about who speaks NOW: with the name
-    in history from an earlier turn, the model kept telling the second
-    speaker the first speaker's name although their voice had been
-    recognised (2026-10-24).
-
-    In the Companion app or the Assist panel the voice is not checked, because
-    the login already says who it is. Without saying so here, "send a message
-    to the other person" was answered with "to Ben or Anna?" (2026-11-08)."""
+    """[SPEAKER] block for this turn."""
     if signed_in and not speaker and not checked:
         return (
             "[SPEAKER]\n"
@@ -310,22 +227,13 @@ def _speaker_block(
             + (f" The newest [USER FACTS] are {speaker}'s." if memory else "")
         )
     if checked:
-        # "Not recognised" alone read as "never enrolled": an enrolled user who
-        # scored just under the threshold was told "I haven't been able to
-        # recognize your voice yet" and offered enrollment again (2026-10-28).
-        # The last-but-two sentence keeps "learn my voice" working; without it,
-        # the model stopped calling the enrollment tool.
         return (
             "[SPEAKER]\n"
             "Voice recognition is on, but it could not tell who is speaking this "
-            "time: the voice did not match a known voice closely enough, which "
-            "happens to known voices too (distance, noise, a short phrase). Never "
-            "say their voice is unknown, not registered or not set up. If they ask "
-            "why you did not recognise them, say in your own words that you could "
-            "not tell from their voice this time and that you listen again on "
-            "everything they say next. A request to learn their voice is still "
-            "carried out as usual. Do not assume they are anyone named earlier in "
-            "this conversation; ask if it matters."
+            "time: the voice did not match a known voice closely enough. Never "
+            "say their voice is unknown, not registered or not set up. "
+            "Do not assume they are anyone named earlier in this conversation; "
+            "ask if it matters."
             + (" Nothing can be saved to memory for them." if memory else "")
         )
     return ""
