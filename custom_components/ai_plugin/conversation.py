@@ -50,7 +50,7 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
     _attr_name = None
     _attr_supported_languages = "*"
     _attr_supported_features = ConversationEntityFeature.CONTROL
-    _attr_supports_streaming = False
+    _attr_supports_streaming = True
 
     @property
     def supported_languages(self) -> list[str] | str:
