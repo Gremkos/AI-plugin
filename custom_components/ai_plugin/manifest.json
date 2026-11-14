@@ -1,8 +1,8 @@
 {
   "domain": "ai_plugin",
-  "name": "AI Plugin",
+  "name": "AI Plugin (Slim)",
   "codeowners": [
-    "@bigbabol1"
+    "@Gremkos"
   ],
   "config_flow": true,
   "documentation": "https://github.com/bigbabol1/AI-plugin",
@@ -12,5 +12,5 @@
   "requirements": [
     "mcp>=1.0.0"
   ],
-  "version": "1.2.0"
+  "version": "1.0.0"
 }
