@@ -1,6 +1,4 @@
 {
   "name": "AI Plugin (Slim)",
-  "render_readme": true,
-  "zip_release": true,
-  "filename": "ai_plugin.zip"
+  "render_readme": true
 }
