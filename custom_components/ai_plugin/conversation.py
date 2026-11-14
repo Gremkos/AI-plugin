@@ -18,7 +18,13 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import ulid as ulid_util
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    FOLLOW_UP_ALWAYS,
+    FOLLOW_UP_AUTO,
+    ends_with_question,
+    follow_up_mode,
+)
 from .exceptions import OrchestratorError
 from .i18n import L
 from .orchestrator import Orchestrator
@@ -127,10 +133,15 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
 
         intent_response = intent.IntentResponse(language=user_input.language)
         intent_response.async_set_speech(reply)
+        mode = follow_up_mode(self._entry.options)
+        if mode == FOLLOW_UP_AUTO:
+            continue_conversation = ends_with_question(reply)
+        else:
+            continue_conversation = mode == FOLLOW_UP_ALWAYS
         return ConversationResult(
             response=intent_response,
             conversation_id=conversation_id,
-            continue_conversation=False,
+            continue_conversation=continue_conversation,
         )
 
     async def async_added_to_hass(self) -> None:
