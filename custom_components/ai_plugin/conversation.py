@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
@@ -30,6 +31,52 @@ from .i18n import L
 from .orchestrator import Orchestrator
 
 _LOGGER = logging.getLogger(__name__)
+
+STATUS_ENTITY_ID = "sensor.alice_assist_status"
+_STATUS_ICONS = {
+    "idle": "mdi:robot-happy-outline",
+    "listening": "mdi:microphone",
+    "processing": "mdi:brain",
+    "responding": "mdi:account-voice",
+}
+_STAGE_TAG_RE = re.compile(r"\[[^\]]*\]")
+
+
+def async_set_assist_status(
+    hass: HomeAssistant,
+    status: str,
+    auto_idle_delay: float | None = None,
+) -> None:
+    """Update sensor.alice_assist_status immediately in Home Assistant."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    old_timer: asyncio.TimerHandle | None = domain_data.pop("_status_timer", None)
+    if old_timer is not None:
+        old_timer.cancel()
+
+    hass.states.async_set(
+        STATUS_ENTITY_ID,
+        status,
+        {
+            "friendly_name": "Alice Assist Status",
+            "icon": _STATUS_ICONS.get(status, "mdi:robot-outline"),
+        },
+    )
+
+    if auto_idle_delay is not None and auto_idle_delay > 0:
+        loop = asyncio.get_running_loop()
+        domain_data["_status_timer"] = loop.call_later(
+            auto_idle_delay,
+            lambda: async_set_assist_status(hass, "idle"),
+        )
+
+
+def _estimate_speech_seconds(reply: str, expects_follow_up: bool) -> float:
+    """Estimate spoken TTS duration in seconds, ignoring [emotion] tags."""
+    spoken = _STAGE_TAG_RE.sub("", reply or "").strip()
+    duration = max(1.5, round(len(spoken) / 14.0 + 1.2, 1))
+    if expects_follow_up:
+        duration += 4.0
+    return duration
 
 
 async def async_setup_entry(
@@ -70,6 +117,8 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         self, user_input: ConversationInput, chat_log
     ) -> ConversationResult:
         """Process a user message from HA Assist and return a reply."""
+        async_set_assist_status(self.hass, "processing")
+
         user_id: str | None = (
             getattr(user_input.context, "user_id", None) if user_input.context else None
         )
@@ -138,6 +187,13 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             continue_conversation = ends_with_question(reply)
         else:
             continue_conversation = mode == FOLLOW_UP_ALWAYS
+
+        async_set_assist_status(
+            self.hass,
+            "responding",
+            auto_idle_delay=_estimate_speech_seconds(reply, continue_conversation),
+        )
+
         return ConversationResult(
             response=intent_response,
             conversation_id=conversation_id,
@@ -147,8 +203,14 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
     async def async_added_to_hass(self) -> None:
         """Start keeping the voice prompt read in by the model."""
         await super().async_added_to_hass()
+        async_set_assist_status(self.hass, "idle")
         self._orchestrator.async_start_warmup()
 
     async def async_will_remove_from_hass(self) -> None:
         """Close provider sessions when the entity is removed."""
+        old_timer: asyncio.TimerHandle | None = self.hass.data.get(DOMAIN, {}).pop(
+            "_status_timer", None
+        )
+        if old_timer is not None:
+            old_timer.cancel()
         await self._orchestrator.async_close()
