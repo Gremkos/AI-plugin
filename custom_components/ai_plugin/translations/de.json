@@ -1,0 +1,422 @@
+{
+  "config": {
+    "step": {
+      "provider": {
+        "title": "Anbieter wählen",
+        "description": "Verbinde ein beliebiges KI-Modell mit deinem Zuhause. Wähle zunächst deinen Anbieter aus.",
+        "data": {
+          "provider": "KI-Anbieter"
+        },
+        "data_description": {}
+      },
+      "provider_url": {
+        "title": "Anbieter-URL",
+        "data": {
+          "base_url": "Anbieter-URL"
+        },
+        "data_description": {
+          "base_url": "Adresse deines KI-Anbieters. Standard: http://localhost:11434/v1 für Ollama"
+        }
+      },
+      "model": {
+        "title": "Modell",
+        "description": "Wähle das Modell aus, das für Gespräche verwendet werden soll.",
+        "description_fetch_failed": "Verbindung zu {fetch_failed} fehlgeschlagen – gib deinen Modellnamen manuell ein (z. B. llama3.2:3b).",
+        "data": {
+          "model": "Modell",
+          "api_key": "API-Schlüssel"
+        },
+        "data_description": {
+          "model": "z. B. llama3.2:3b, qwen2.5:7b, mistral",
+          "api_key": "Optional für lokale Anbieter wie Ollama und llama.cpp"
+        }
+      },
+      "web_search": {
+        "title": "Websuche",
+        "data": {
+          "web_search_enabled": "KI im Web suchen lassen",
+          "web_search_backend": "Suchanbieter",
+          "brave_api_key": "Brave Search API-Schlüssel",
+          "tavily_api_key": "Tavily API-Schlüssel",
+          "max_results": "Ergebnisse pro Suche"
+        },
+        "data_description": {
+          "web_search_enabled": "AI Plugin durchsucht das Internet, um Fragen zu aktuellen Ereignissen, Wetter und mehr zu beantworten.",
+          "web_search_backend": "DuckDuckGo ist kostenlos, aber inoffiziell und gelegentlich nicht erreichbar. Brave Search wird empfohlen.",
+          "brave_api_key": "Kostenloses Kontingent: 2.000 Anfragen/Monat. Schlüssel unter brave.com/search/api erhältlich.",
+          "tavily_api_key": "Kostenloses Kontingent: 1.000 Anfragen/Monat.",
+          "max_results": "Maximale Anzahl an Suchergebnissen, die in den Kontext der KI aufgenommen werden."
+        }
+      },
+      "searxng": {
+        "title": "SearXNG",
+        "data": {
+          "searxng_url": "SearXNG-URL"
+        },
+        "data_description": {
+          "searxng_url": "URL deiner selbst gehosteten SearXNG-Instanz (z. B. https://search.example.com)."
+        }
+      },
+      "advanced": {
+        "title": "Erweitert",
+        "data": {
+          "system_prompt": "Eigene Anweisungen",
+          "context_window": "Kontextfenster (Tokens)",
+          "summarization_enabled": "Lange Gespräche automatisch zusammenfassen",
+          "voice_mode": "Kompakte Prompts für Sprachausgabe verwenden",
+          "continue_conversation": "Nach Sprachantworten auf Rückfragen hören",
+          "follow_up_delay": "Stille Pause vor erneutem Zuhören (Sekunden)",
+          "auto_ducking": "Aktive Mediaplayer während Sprachinteraktionen leiser stellen",
+          "enable_thinking": "Modell-Reasoning aktivieren (Chain-of-Thought)",
+          "max_tool_iterations": "Limit für Tool-Aufrufe",
+          "self_echo_filter": "Eigene Antwort auf dem Satelliten ignorieren",
+          "timer_announce": "Timer ansagen statt auf dem Gerät klingeln",
+          "feedback_loop_devices": "Gespräche auf diesen Satelliten immer beenden",
+          "keep_alive": "Ollama Keep-Alive (z. B. 30m, -1)",
+          "prune_tool_schemas": "Tool-Schemas pro Nachricht reduzieren",
+          "response_timeout": "Zeitlimit (Sekunden)",
+          "temperature": "Temperatur",
+          "top_p": "Top P",
+          "max_tokens": "Maximale Tokens (Ausgabe)",
+          "location_bias": "Websuche auf deinen Wohnort ausrichten",
+          "location_entity": "Live-Standort-Entität (optional)"
+        },
+        "data_description": {
+          "system_prompt": "Optionale Anweisungen, die jedem Gespräch hinzugefügt werden. Leer lassen für den Standardwert.",
+          "context_window": "Maximales Kontextfenster, das dein Modell unterstützt. Prüfe die Dokumentation deines Modells.",
+          "summarization_enabled": "Wenn Gespräche lang werden, fasst AI Plugin ältere Nachrichten zusammen, um den Kontext zu erhalten.",
+          "voice_mode": "Kürzere Antworten, optimiert für Sprachausgabe (TTS). Standardmäßig für Sprachassistenten aktiviert.",
+          "continue_conversation": "Legt fest, ob das Mikrofon nach einer gesprochenen Antwort wieder geöffnet wird, damit du ohne Aktivierungswort antworten kannst. Immer: nach jeder Antwort. KI entscheiden lassen: nur wenn die Antwort mit einer Frage endet. Nie: nach jeder Antwort beenden. Schlusswörter (\"Stopp\", \"Das war's\") beenden das Gespräch in jedem Modus.",
+          "follow_up_delay": "Für Satelliten, deren Antworten über separate Lautsprecher laufen: Ab einem Wert über 0 übernimmt AI Plugin die Steuerung und wartet nach der Sprachausgabe diese Anzahl Sekunden, bevor das Mikrofon wieder geöffnet wird. 0 überlässt die Steuerung dem Satelliten.",
+          "auto_ducking": "Regelt die Lautstärke laufender Mediaplayer automatisch herunter, sobald Assist zuhört oder antwortet, und stellt die ursprüngliche Lautstärke bei Leerlauf (idle) wieder her.",
+          "enable_thinking": "Erlaubt Reasoning-Modellen (z. B. qwen3, deepseek-r1) vor der Antwort interne Gedankengänge zu erzeugen. Standardmäßig aus – Assist benötigt direkte Antworten. Interne Denkblöcke werden immer herausgefiltert.",
+          "max_tool_iterations": "Maximale Anzahl an Tool-Aufrufen pro Antwort (Standard: 10).",
+          "self_echo_filter": "Für Satelliten mit separatem Lautsprecher: Verwirft Spracheingaben, die Teile der gerade gesprochenen Antwort wiederholen, damit keine Endlosschleife entsteht.",
+          "timer_announce": "Sprach-Timer werden bei Ablauf über den Mediaplayer (oder assist_satellite.announce) angesagt, statt auf dem Satelliten zu klingeln.",
+          "feedback_loop_devices": "Satelliten, deren Sprachausgabe über einen separaten Lautsprecher läuft und sich selbst wieder hören. Gespräche auf diesen Geräten enden immer nach einer Runde.",
+          "keep_alive": "Wie lange Ollama das Modell nach einer Anfrage im VRAM behält. Leer = Serverstandard (5m). -1 hält das Modell dauerhaft geladen.",
+          "prune_tool_schemas": "Entfernt unwahrscheinliche Erkennungs-Tools pro Nachricht. Spart einige hundert Tokens, deaktiviert aber Ollamas Prompt-Caching – für geringere Latenz ausgeschaltet lassen.",
+          "response_timeout": "Wie lange auf eine Antwort der KI gewartet wird, bevor abgebrochen wird.",
+          "temperature": "Steuert die Kreativität. Niedriger = fokussierter, höher = kreativer. Leer lassen für den Standardwert des Modells.",
+          "top_p": "Schwellenwert für Nucleus-Sampling. Leer lassen für den Standardwert des Modells.",
+          "max_tokens": "Maximale Anzahl an Tokens in der Antwort der KI. 0 oder leer = kein Limit.",
+          "location_bias": "Wenn die KI nach lokalem Wetter, Veranstaltungen oder Restaurants fragt, begrenzt das Plugin die Websuche auf deine Umgebung. Ausschalten, um keine Koordinaten zu senden.",
+          "location_entity": "Verwendet die Koordinaten dieser Entität als deinen Live-Standort (Zone, Gerätetracker oder Person). Leer lassen für die Home-Assistant-Heimkoordinaten."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Anbieter fehlgeschlagen. Prüfe, ob dein KI-Anbieter läuft.",
+      "invalid_api_key": "Ungültiger API-Schlüssel. Prüfe deine Zugangsdaten.",
+      "model_no_tools": "Dieses Modell unterstützt keine Tool-Aufrufe – die Integration benötigt Tools zur Gerätesteuerung. Wähle ein Tool-fähiges Modell (z. B. qwen3).",
+      "model_no_thinking": "Dieses Modell unterstützt kein Reasoning, daher hätte diese Option keine Wirkung. Schalte sie aus oder wähle ein passendes Modell.",
+      "context_exceeds_model": "Größer als die maximale Kontextlänge dieses Modells – verringere das Kontextfenster.",
+      "model_required": "Gib einen Modellnamen ein.",
+      "invalid_url": "Gib eine gültige URL ein (z. B. http://localhost:11434/v1)",
+      "searxng_unreachable": "Deine SearXNG-Instanz konnte nicht erreicht werden. Prüfe die URL."
+    },
+    "abort": {
+      "already_configured": "AI Plugin ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "AI Plugin konfigurieren",
+        "menu_options": {
+          "provider_settings": "Anbieter-Einstellungen",
+          "web_search": "Websuche",
+          "memory": "Gedächtnis",
+          "tools": "Tools",
+          "advanced": "Erweitert",
+          "mcp_servers": "MCP-Server",
+          "voice_id": "Stimmerkennung"
+        }
+      },
+      "provider_settings": {
+        "title": "Anbieter-Einstellungen",
+        "data": {
+          "base_url": "Anbieter-URL",
+          "api_key": "API-Schlüssel"
+        },
+        "data_description": {
+          "base_url": "Adresse deines KI-Anbieters.",
+          "api_key": "Optional für lokale Anbieter wie Ollama und llama.cpp."
+        }
+      },
+      "provider_model": {
+        "title": "Modell",
+        "data": {
+          "model": "Modell"
+        },
+        "data_description": {
+          "model": "z. B. llama3.2:3b, qwen2.5:7b, mistral"
+        }
+      },
+      "web_search": {
+        "title": "Websuche",
+        "data": {
+          "web_search_enabled": "KI im Web suchen lassen",
+          "web_search_backend": "Suchanbieter",
+          "brave_api_key": "Brave Search API-Schlüssel",
+          "tavily_api_key": "Tavily API-Schlüssel",
+          "max_results": "Ergebnisse pro Suche"
+        },
+        "data_description": {
+          "web_search_enabled": "AI Plugin durchsucht das Internet, um Fragen zu aktuellen Ereignissen, Wetter und mehr zu beantworten.",
+          "web_search_backend": "DuckDuckGo ist kostenlos, aber inoffiziell und gelegentlich nicht erreichbar. Brave Search wird empfohlen.",
+          "brave_api_key": "Kostenloses Kontingent: 2.000 Anfragen/Monat. Schlüssel unter brave.com/search/api erhältlich.",
+          "tavily_api_key": "Kostenloses Kontingent: 1.000 Anfragen/Monat.",
+          "max_results": "Maximale Anzahl an Suchergebnissen, die in den Kontext der KI aufgenommen werden."
+        }
+      },
+      "searxng": {
+        "title": "SearXNG",
+        "data": {
+          "searxng_url": "SearXNG-URL"
+        },
+        "data_description": {
+          "searxng_url": "URL deiner selbst gehosteten SearXNG-Instanz."
+        }
+      },
+      "advanced": {
+        "title": "Erweitert",
+        "data": {
+          "system_prompt": "Eigene Anweisungen",
+          "context_window": "Kontextfenster (Tokens)",
+          "summarization_enabled": "Lange Gespräche automatisch zusammenfassen",
+          "voice_mode": "Kompakte Prompts für Sprachausgabe verwenden",
+          "continue_conversation": "Nach Sprachantworten auf Rückfragen hören",
+          "follow_up_delay": "Stille Pause vor erneutem Zuhören (Sekunden)",
+          "auto_ducking": "Aktive Mediaplayer während Sprachinteraktionen leiser stellen",
+          "enable_thinking": "Modell-Reasoning aktivieren (Chain-of-Thought)",
+          "max_tool_iterations": "Limit für Tool-Aufrufe",
+          "self_echo_filter": "Eigene Antwort auf dem Satelliten ignorieren",
+          "timer_announce": "Timer ansagen statt auf dem Gerät klingeln",
+          "feedback_loop_devices": "Gespräche auf diesen Satelliten immer beenden",
+          "keep_alive": "Ollama Keep-Alive (z. B. 30m, -1)",
+          "prune_tool_schemas": "Tool-Schemas pro Nachricht reduzieren",
+          "response_timeout": "Zeitlimit (Sekunden)",
+          "temperature": "Temperatur",
+          "top_p": "Top P",
+          "max_tokens": "Maximale Tokens (Ausgabe)",
+          "location_bias": "Websuche auf deinen Wohnort ausrichten",
+          "location_entity": "Live-Standort-Entität (optional)"
+        },
+        "data_description": {
+          "system_prompt": "Optionale Anweisungen, die jedem Gespräch hinzugefügt werden. Leer lassen für den Standardwert.",
+          "context_window": "Maximales Kontextfenster, das dein Modell unterstützt. Prüfe die Dokumentation deines Modells.",
+          "summarization_enabled": "Wenn Gespräche lang werden, fasst AI Plugin ältere Nachrichten zusammen, um den Kontext zu erhalten.",
+          "voice_mode": "Kürzere Antworten, optimiert für Sprachausgabe (TTS).",
+          "continue_conversation": "Legt fest, ob das Mikrofon nach einer gesprochenen Antwort wieder geöffnet wird, damit du ohne Aktivierungswort antworten kannst. Immer: nach jeder Antwort. KI entscheiden lassen: nur wenn die Antwort mit einer Frage endet. Nie: nach jeder Antwort beenden. Schlusswörter (\"Stopp\", \"Das war's\") beenden das Gespräch in jedem Modus.",
+          "follow_up_delay": "Für Satelliten, deren Antworten über separate Lautsprecher laufen: Ab einem Wert über 0 übernimmt AI Plugin die Steuerung und wartet nach der Sprachausgabe diese Anzahl Sekunden, bevor das Mikrofon wieder geöffnet wird. 0 überlässt die Steuerung dem Satelliten.",
+          "auto_ducking": "Regelt die Lautstärke laufender Mediaplayer automatisch herunter, sobald Assist zuhört oder antwortet, und stellt die ursprüngliche Lautstärke bei Leerlauf (idle) wieder her.",
+          "enable_thinking": "Erlaubt Reasoning-Modellen (z. B. qwen3, deepseek-r1) vor der Antwort interne Gedankengänge zu erzeugen. Standardmäßig aus – Assist benötigt direkte Antworten. Interne Denkblöcke werden immer herausgefiltert.",
+          "max_tool_iterations": "Maximale Anzahl an Tool-Aufrufen pro Antwort (Standard: 10).",
+          "self_echo_filter": "Für Satelliten mit separatem Lautsprecher: Verwirft Spracheingaben, die Teile der gerade gesprochenen Antwort wiederholen, damit keine Endlosschleife entsteht.",
+          "timer_announce": "Sprach-Timer werden bei Ablauf über den Mediaplayer (oder assist_satellite.announce) angesagt, statt auf dem Satelliten zu klingeln.",
+          "feedback_loop_devices": "Satelliten, deren Sprachausgabe über einen separaten Lautsprecher läuft und sich selbst wieder hören. Gespräche auf diesen Geräten enden immer nach einer Runde.",
+          "keep_alive": "Wie lange Ollama das Modell nach einer Anfrage im VRAM behält. Leer = Serverstandard (5m). -1 hält das Modell dauerhaft geladen.",
+          "prune_tool_schemas": "Entfernt unwahrscheinliche Erkennungs-Tools pro Nachricht. Spart einige hundert Tokens, deaktiviert aber Ollamas Prompt-Caching – für geringere Latenz ausgeschaltet lassen.",
+          "response_timeout": "Wie lange auf eine Antwort der KI gewartet wird, bevor abgebrochen wird.",
+          "temperature": "Steuert die Kreativität. Niedriger = fokussierter, höher = kreativer. Leer lassen für den Standardwert des Modells.",
+          "top_p": "Schwellenwert für Nucleus-Sampling. Leer lassen für den Standardwert des Modells.",
+          "max_tokens": "Maximale Anzahl an Tokens in der Antwort der KI. 0 oder leer = kein Limit.",
+          "location_bias": "Wenn die KI nach lokalem Wetter, Veranstaltungen oder Restaurants fragt, begrenzt das Plugin die Websuche auf deine Umgebung. Ausschalten, um keine Koordinaten zu senden.",
+          "location_entity": "Verwendet die Koordinaten dieser Entität als deinen Live-Standort (Zone, Gerätetracker oder Person). Leer lassen für die Home-Assistant-Heimkoordinaten."
+        }
+      },
+      "mcp_servers": {
+        "title": "MCP-Server",
+        "description": "Verbinde AI Plugin über das Model Context Protocol (MCP) mit weiteren Tools, z. B. für Uhrzeit, Webseiten oder ein eigenes Gedächtnis. Home Assistants eigene Tools (Geräte, Sensoren, freigegebene Skripte, Aufgabenlisten) sind bereits integriert und benötigen hier keinen Server.\n\nKonfigurierte Server:\n{servers}",
+        "data": {
+          "mcp_action": "Was möchtest du tun?"
+        },
+        "data_description": {
+          "mcp_action": "Änderungen werden erst gespeichert, wenn du Speichern und schließen wählst."
+        }
+      },
+      "mcp_add_preset": {
+        "title": "Beliebten MCP-Server hinzufügen",
+        "description": "Wähle einen Server zum Hinzufügen aus. Uhr und Web-Reader funktionieren sofort ohne Einrichtung. SQLite fragt nach dem Pfad einer Datenbankdatei.",
+        "data": {
+          "preset_key": "Server"
+        }
+      },
+      "mcp_preset_config": {
+        "title": "{preset_label}",
+        "description": "Gib {config_label} für diesen Server ein. Beispiel: {example}",
+        "data": {
+          "preset_value": "{config_label}"
+        },
+        "data_description": {
+          "preset_value": "Muss ein absoluter Pfad sein, auf den Home Assistant zugreifen kann."
+        }
+      },
+      "mcp_add_http": {
+        "title": "HTTP-MCP-Server hinzufügen",
+        "description": "Für den integrierten MCP-Endpunkt von Home Assistant:\n  URL: http://DEINE-HA-IP:8123/api/mcp\n  Token: Erstelle ein langlebiges Zugriffstoken in deinem HA-Profil (ganz unten auf der Seite).",
+        "data": {
+          "mcp_url": "Server-URL",
+          "mcp_token": "Bearer-Token (optional)"
+        },
+        "data_description": {
+          "mcp_url": "z. B. http://homeassistant.local:8123/api/mcp",
+          "mcp_token": "Erforderlich für den MCP-Endpunkt von HA. Für Server ohne Authentifizierung leer lassen."
+        }
+      },
+      "mcp_add_stdio": {
+        "title": "stdio-MCP-Server hinzufügen",
+        "description": "Startet ein lokales MCP-Tool als Unterprozess.\nBeispiel: Befehl = uvx   Argumente = mcp-server-time",
+        "data": {
+          "mcp_command": "Befehl",
+          "mcp_args": "Argumente (durch Leerzeichen getrennt)",
+          "mcp_key_env": "API-Schlüssel-Variable",
+          "mcp_key": "API-Schlüssel"
+        },
+        "data_description": {
+          "mcp_command": "Die auszuführende Datei (z. B. uvx, npx, python).",
+          "mcp_args": "Argumente getrennt durch Leerzeichen (z. B. mcp-server-time --local).",
+          "mcp_key_env": "Umgebungsvariable, aus der der Server seinen Schlüssel liest (siehe Server-Dokumentation), z. B. BRAVE_API_KEY.",
+          "mcp_key": "Optional. Leer lassen, wenn kein Schlüssel benötigt wird; leeren, um einen gespeicherten Schlüssel zu entfernen."
+        }
+      },
+      "mcp_edit_pick": {
+        "title": "MCP-Server bearbeiten – einen auswählen",
+        "data": {
+          "mcp_index": "Zu bearbeitender Server"
+        }
+      },
+      "mcp_edit_http": {
+        "title": "HTTP-MCP-Server bearbeiten",
+        "data": {
+          "mcp_url": "Server-URL",
+          "mcp_token": "Bearer-Token (optional)"
+        },
+        "data_description": {
+          "mcp_url": "z. B. http://homeassistant.local:8123/api/mcp",
+          "mcp_token": "Leer lassen, um ein vorhandenes Token zu entfernen."
+        }
+      },
+      "mcp_edit_stdio": {
+        "title": "stdio-MCP-Server bearbeiten",
+        "data": {
+          "mcp_command": "Befehl",
+          "mcp_args": "Argumente (durch Leerzeichen getrennt)",
+          "mcp_key_env": "API-Schlüssel-Variable",
+          "mcp_key": "API-Schlüssel"
+        },
+        "data_description": {
+          "mcp_command": "Die auszuführende Datei.",
+          "mcp_args": "Argumente getrennt durch Leerzeichen.",
+          "mcp_key_env": "Umgebungsvariable, aus der der Server seinen Schlüssel liest (siehe Server-Dokumentation), z. B. BRAVE_API_KEY.",
+          "mcp_key": "Optional. Leer lassen, wenn kein Schlüssel benötigt wird; leeren, um einen gespeicherten Schlüssel zu entfernen."
+        }
+      },
+      "mcp_remove": {
+        "title": "MCP-Server entfernen – einen auswählen",
+        "data": {
+          "mcp_index": "Zu entfernender Server"
+        }
+      },
+      "voice_id": {
+        "title": "Stimmerkennung",
+        "description": "Erkennt bei Spracheingaben, wer spricht, sodass jede Person ihr eigenes Gedächtnis erhält. Es werden nur Stimm-Fingerabdrücke gespeichert, niemals Audiodaten. Dies ist keine Sicherheitsfunktion und autorisiert keine Aktionen.\n\n{status}",
+        "menu_options": {
+          "voice_id_settings": "Einstellungen",
+          "voice_id_enroll": "Stimme einlernen",
+          "voice_id_delete": "Stimme löschen"
+        }
+      },
+      "voice_id_settings": {
+        "title": "Einstellungen der Stimmerkennung",
+        "description": "Beim Aktivieren wird einmalig das Stimmmodell heruntergeladen (ca. 13 MB) und die Assist-Pipelines dieser Integration nutzen einen Speech-to-Text-Durchlauf, der eine Kopie jedes Sprachbefehls 30 Sekunden im Arbeitsspeicher hält. Beim Deaktivieren wird dies wieder zurückgesetzt.",
+        "data": {
+          "voice_id_enabled": "Stimmen erkennen",
+          "voice_id_voice_enroll": "Einlernen per Sprachbefehl erlauben (\"Lerne meine Stimme, ich bin Anna\")",
+          "voice_id_threshold": "Mindest-Übereinstimmungswert",
+          "voice_id_margin": "Mindestvorsprung zur nächsten Person"
+        },
+        "data_description": {
+          "voice_id_threshold": "Höhere Werte führen zu weniger falschen Zuordnungen und häufiger zu 'unbekannt'. Standard: 0,35.",
+          "voice_id_margin": "Wie deutlich die beste Übereinstimmung vor dem zweiten Platz liegen muss. Standard: 0,10."
+        }
+      },
+      "voice_id_enroll": {
+        "title": "Stimme einlernen",
+        "description": "Wähle aus, wer eingelernt wird und auf welchem Gerät. Der Satellit stellt sich vor und stellt acht kurze Fragen. Antworte jeweils in einem ganzen Satz; nichts davon wird als Befehl ausgeführt. Sage \"Stopp\" zum vorzeitigen Beenden. Wiederhole dies auf einem Satelliten eines anderen Typs (z. B. im Bad) für bessere Erkennung.",
+        "data": {
+          "person": "Person",
+          "satellite": "Satellit"
+        }
+      },
+      "voice_id_delete": {
+        "title": "Stimme löschen",
+        "description": "Entfernt alle gespeicherten Stimm-Fingerabdrücke dieser Person. Ihr Gedächtnis bleibt erhalten.",
+        "data": {
+          "person": "Person"
+        }
+      },
+      "memory": {
+        "title": "Gedächtnis",
+        "description": "Was sich der Assistent merkt: Fakten, die du ihm nennst, den Gesprächsverlauf auf einem Satelliten sowie ein Tagebuch früherer Gespräche, das er später auf jedem Gerät abrufen kann.",
+        "data": {
+          "memory_enabled": "Langzeitgedächtnis",
+          "conversation_memory_minutes": "Gespräch auf einem Satelliten merken für (Minuten)",
+          "diary_enabled": "Frühere Gespräche merken (Tagebuch)",
+          "diary_days": "Tagebuchnotizen aufbewahren für (Tage)",
+          "diary_share": "Gespräche zwischen Personen teilen"
+        },
+        "data_description": {
+          "memory_enabled": "Die Tools zum Merken, Abrufen und Vergessen sowie die gespeicherten Fakten, die das Modell bei jeder Anfrage liest. Ausschalten, wenn du ein eigenes Gedächtnis (z. B. über einen MCP-Server) nutzt. Gespeicherte Fakten bleiben erhalten.",
+          "conversation_memory_minutes": "Wie lange sich ein Sprachsatellit an Gesagtes erinnert, gerechnet ab der letzten Eingabe. Innerhalb dieser Zeit weiß eine Nachfrage wie \"und im Schlafzimmer?\" noch, worum es ging. 0 startet bei jeder neuen Home-Assistant-Konversation neu. Standard: 15.",
+          "diary_enabled": "Zehn Minuten nach Gesprächsende schreibt das Modell kurze Notizen über gestellte Fragen und genannte Details (Rezeptschritte, Mengen, Namen, Pläne). Gerätebefehle und Smalltalk werden ausgelassen. Ein kleines Suchmodell (ca. 40 MB) wird einmalig heruntergeladen. Sage \"Vergiss unsere Gespräche\", um deine eigenen Einträge zu löschen.",
+          "diary_days": "Ältere Notizen werden gelöscht. Standard: 30.",
+          "diary_share": "Jede Notiz speichert, wessen Gespräch es war. Aus: Jeder sieht nur eigene Notizen und die unerkannter Stimmen. An: Notizen aller Personen können in jedem Gespräch auftauchen."
+        }
+      },
+      "tools": {
+        "title": "Tools",
+        "description": "Was der Assistent neben der Gerätesteuerung selbst übernimmt. Schalte eine Funktion aus, wenn du eine eigene Lösung (z. B. ein Skript oder einen MCP-Server) für Timer, Wecker oder Durchsagen nutzt.",
+        "data": {
+          "tool_timers": "Timer",
+          "tool_alarms": "Wecker, Erinnerungen und zeitverzögerte Befehle",
+          "tool_calendar": "Kalendereinträge",
+          "tool_messages": "Nachrichten an Telefone und Räume",
+          "tool_broadcast": "Durchsagen",
+          "tool_move_music": "Musik in einen anderen Raum verschieben",
+          "tool_find_phone": "Mein Telefon finden"
+        },
+        "data_description": {
+          "tool_timers": "\"Stelle einen Timer auf 10 Minuten\": ein Sprach-Timer auf dem Satelliten mit Pause, Zeit hinzufügen und \"Wie lange noch?\".",
+          "tool_alarms": "\"Wecke mich um 7\", \"Erinnere mich morgen um 6 an den Müll\", \"Schalte das Licht in 30 Minuten aus\". Bleibt über Neustarts erhalten.",
+          "tool_calendar": "\"Trage den Zahnarzt am Freitag um 10 in meinen Kalender ein\" und \"Lösche den Zahnarzt am Freitag\" in einem für Assist freigegebenen Kalender.",
+          "tool_messages": "\"Sag Anna, das Essen ist fertig\" geht an Annas Telefon; \"Sag in der Küche ...\" wird auf dem dortigen Satelliten angesagt.",
+          "tool_broadcast": "\"Sage durch, dass das Essen fertig ist\" wird auf den Satelliten in allen anderen Räumen angesagt.",
+          "tool_move_music": "\"Schiebe die Musik ins Schlafzimmer\". Benötigt Music Assistant.",
+          "tool_find_phone": "\"Wo ist mein Telefon?\" lässt das Telefon der fragenden Person klingeln."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Anbieter fehlgeschlagen. Prüfe, ob dein KI-Anbieter läuft.",
+      "invalid_api_key": "Ungültiger API-Schlüssel. Prüfe deine Zugangsdaten.",
+      "model_no_tools": "Dieses Modell unterstützt keine Tool-Aufrufe – die Integration benötigt Tools zur Gerätesteuerung. Wähle ein Tool-fähiges Modell (z. B. qwen3).",
+      "model_no_thinking": "Dieses Modell unterstützt kein Reasoning, daher hätte diese Option keine Wirkung. Schalte sie aus oder wähle ein passendes Modell.",
+      "context_exceeds_model": "Größer als die maximale Kontextlänge dieses Modells – verringere das Kontextfenster.",
+      "model_required": "Gib einen Modellnamen ein.",
+      "invalid_url": "Gib eine gültige URL ein (z. B. http://localhost:11434/v1)",
+      "searxng_unreachable": "Deine SearXNG-Instanz konnte nicht erreicht werden. Prüfe die URL.",
+      "command_required": "Gib einen auszuführenden Befehl ein."
+    },
+    "abort": {
+      "voice_id_disabled": "Aktiviere zuerst die Stimmerkennung in den Einstellungen.",
+      "voice_id_no_persons": "Füge zuerst Personen unter Einstellungen → Personen hinzu; Stimmen werden mit ihnen verknüpft.",
+      "voice_id_no_satellites": "Kein Sprachsatellit gefunden.",
+      "voice_id_enroll_started": "Einlernen gestartet – {satellite} stellt jetzt die erste Frage.",
+      "voice_id_nothing_enrolled": "Es sind keine Stimmen eingelernt.",
+      "voice_id_deleted": "Stimme gelöscht.",
+      "voice_id_enroll_armed": "Der Satellit konnte nicht gestartet werden. Sage innerhalb von 5 Minuten das Aktivierungswort zu {satellite}, dann beginnt die Befragung."
+    }
+  }
+}
