@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .conversation import async_set_assist_status
 from .voice_id.buffer import MAX_PCM_BYTES
 from .voice_id.features import MAX_SPEECH_SECONDS, SAMPLE_RATE, pcm16_to_float, trim_speech
 from .voice_id.pipelines import engines_to_wrap
@@ -125,6 +126,8 @@ class VoiceIDSpeechToText(stt.SpeechToTextEntity):
     async def async_process_audio_stream(
         self, metadata: stt.SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> stt.SpeechResult:
+        """Process an audio stream."""
+        async_set_assist_status(self.hass, "listening")
         engine = self._wrapped()
         if engine is None:
             _LOGGER.error(
