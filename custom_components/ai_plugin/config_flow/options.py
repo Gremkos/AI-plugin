@@ -269,12 +269,44 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
         """The built-in features, each one on or off."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._options = {**self._options, **user_input}
-            return self.async_create_entry(title="", data=self._options)
+            if (
+                user_input.get("tool_todo_injector")
+                and self.hass.states.get("todo.ai_plugin_injektor") is None
+            ):
+                try:
+                    flow = await self.hass.config_entries.flow.async_init(
+                        "local_todo",
+                        context={"source": config_entries.SOURCE_USER},
+                    )
+                    if flow.get("type") == "form":
+                        field_name = "todo_list_name"
+                        data_schema = flow.get("data_schema")
+                        if data_schema is not None and hasattr(data_schema, "schema"):
+                            for key in data_schema.schema:
+                                if hasattr(key, "schema"):
+                                    field_name = str(key.schema)
+                                    break
+                        await self.hass.config_entries.flow.async_configure(
+                            flow["flow_id"],
+                            {field_name: "AI Plugin - Injektor"},
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "AI Plugin: could not auto-create local_todo list",
+                        exc_info=True,
+                    )
+                    errors["tool_todo_injector"] = "todo_injector_unavailable"
+
+            if not errors:
+                self._options = {**self._options, **user_input}
+                return self.async_create_entry(title="", data=self._options)
+
         return self.async_show_form(
             step_id="tools",
             data_schema=_tools_schema(self._options),
+            errors=errors,
         )
 
     # ── Advanced ─────────────────────────────────────────────────────────────

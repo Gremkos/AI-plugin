@@ -200,12 +200,17 @@ def _memory_schema(current: dict[str, Any]) -> vol.Schema:
 
 def _tools_schema(current: dict[str, Any]) -> vol.Schema:
     """The built-in features, each one on or off (Configure -> Tools)."""
-    return vol.Schema(
-        {
-            vol.Optional(key, default=current.get(key, True)): selector.BooleanSelector()
-            for key in FEATURE_TOOLS
-        }
-    )
+    schema: dict[Any, Any] = {
+        vol.Optional(key, default=current.get(key, True)): selector.BooleanSelector()
+        for key in FEATURE_TOOLS
+    }
+    schema[
+        vol.Optional(
+            "tool_todo_injector",
+            default=current.get("tool_todo_injector", False),
+        )
+    ] = selector.BooleanSelector()
+    return vol.Schema(schema)
 
 
 def _advanced_schema(current: dict[str, Any], hass: Any) -> vol.Schema:

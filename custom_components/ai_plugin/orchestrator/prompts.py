@@ -36,6 +36,8 @@ _SCHEDULE_INTRO = "- A timer counts down a length of time and then only rings."
 _SCHEDULE_CLOSING = "- Say what these tools answered"
 _BROADCAST_EXAMPLE = " 'tell everyone', 'announce': HassBroadcast."
 
+INJECTOR_TODO_ENTITY = "todo.ai_plugin_injektor"
+
 
 def prune_feature_rules(prompt: str, off: frozenset[str]) -> str:
     """The prompt without the rules of features switched off (Configure -> Tools)."""
@@ -93,7 +95,7 @@ class PromptBlocksMixin:
         system_prompt: str | None = None,
         tool_tokens: int | None = None,
     ) -> str:
-        """Per-turn context ([CURRENT TIME], [SPEAKER], [USER FACTS], [LAST ACTION])."""
+        """Per-turn context ([CURRENT TIME], [SPEAKER], [USER FACTS], [MANDATORY RULES], [LAST ACTION])."""
         facts = await self._build_user_facts_block(user_id)
         if (
             facts
@@ -103,17 +105,51 @@ class PromptBlocksMixin:
             )
         ):
             facts = ""
+        injector = await self._build_injector_block()
         parts = [
             self._build_time_block(),
             _speaker_block(
                 speaker, speaker_checked, self._memory_enabled(), signed_in=signed_in
             ),
             facts,
+            injector,
         ]
         last = self._last_entities.get(conversation_id)
         if last:
             parts.append(f"[LAST ACTION]\n{last}")
         return "\n\n".join(p for p in parts if p)
+
+    async def _build_injector_block(self) -> str:
+        """Render active items from todo.ai_plugin_injektor as mandatory per-turn rules."""
+        if not self._entry.options.get("tool_todo_injector", False):
+            return ""
+        if self._hass is None or self._hass.states.get(INJECTOR_TODO_ENTITY) is None:
+            return ""
+        try:
+            resp = await self._hass.services.async_call(
+                "todo",
+                "get_items",
+                {"entity_id": INJECTOR_TODO_ENTITY, "status": "needs_action"},
+                blocking=True,
+                return_response=True,
+            )
+            items = (resp or {}).get(INJECTOR_TODO_ENTITY, {}).get("items", [])
+            rules = [
+                str(item["summary"]).strip()
+                for item in items
+                if isinstance(item, dict) and str(item.get("summary") or "").strip()
+            ]
+            if not rules:
+                return ""
+            numbered = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, 1))
+            return (
+                "[MANDATORY RULES]\n"
+                "Follow these active rules strictly on every turn:\n"
+                f"{numbered}"
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("AI Plugin: could not read %s", INJECTOR_TODO_ENTITY, exc_info=True)
+            return ""
 
     def _build_time_block(self) -> str:
         """Return a fresh [CURRENT TIME] block in the user's local timezone."""

@@ -384,6 +384,7 @@
           "tool_broadcast": "Announcements",
           "tool_move_music": "Move music to another room",
           "tool_find_phone": "Find my phone"
+          "tool_todo_injector": "Prompt injector via To-do list"
         },
         "data_description": {
           "tool_timers": "\"Set a timer for 10 minutes\": a voice timer on the satellite, with pause, add time and \"how long left\".",
@@ -393,6 +394,7 @@
           "tool_broadcast": "\"Announce that dinner is ready\" is spoken on the satellites in all other rooms. Off, Home Assistant's own announcement tool is left out too, so your own announcement script gets the request.",
           "tool_move_music": "\"Move the music to the bedroom\". Needs Music Assistant.",
           "tool_find_phone": "\"Where is my phone?\" rings the phone of the person asking."
+          "tool_todo_injector": "Injects open items from the 'AI Plugin - Injektor' (todo.ai_plugin_injektor) to-do list as mandatory rules into every turn. Requires Home Assistant's Local To-do integration; when enabled, the plugin automatically creates the list if it does not exist yet."
         }
       }
     },
@@ -406,6 +408,7 @@
       "invalid_url": "Enter a valid URL (e.g. http://localhost:11434/v1)",
       "searxng_unreachable": "Could not reach your SearXNG instance. Check the URL.",
       "command_required": "Enter a command to run."
+      "todo_injector_unavailable": "Could not create the 'AI Plugin - Injektor' list. Make sure Home Assistant's Local To-do integration is available."
     },
     "abort": {
       "voice_id_disabled": "Turn on voice recognition in Settings first.",
