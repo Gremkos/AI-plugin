@@ -394,7 +394,7 @@
           "tool_broadcast": "\"Announce that dinner is ready\" is spoken on the satellites in all other rooms. Off, Home Assistant's own announcement tool is left out too, so your own announcement script gets the request.",
           "tool_move_music": "\"Move the music to the bedroom\". Needs Music Assistant.",
           "tool_find_phone": "\"Where is my phone?\" rings the phone of the person asking.",
-          "tool_todo_injector": "Injects open items from the 'AI Plugin - Injektor' (todo.ai_plugin_injektor) to-do list as mandatory rules into every turn. Requires Home Assistant's Local To-do integration; when enabled, the plugin automatically creates the list if it does not exist yet."
+          "tool_todo_injector": "Injects open items from the 'AI Plugin - Injektor' (todo.ai_plugin_injektor) to-do list as mandatory rules into every turn. Requires Home Assistant's Local To-do integration; when enabled, the plugin automatically creates the list if it does not exist yet. (e.g., “the title and description of open entries are combined and inserted”). However, this is not mandatory."
         }
       }
     },

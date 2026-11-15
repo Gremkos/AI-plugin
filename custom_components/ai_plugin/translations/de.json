@@ -396,7 +396,7 @@
           "tool_broadcast": "\"Sage durch, dass das Essen fertig ist\" wird auf den Satelliten in allen anderen Räumen angesagt.",
           "tool_move_music": "\"Schiebe die Musik ins Schlafzimmer\". Benötigt Music Assistant.",
           "tool_find_phone": "\"Wo ist mein Telefon?\" lässt das Telefon der fragenden Person klingeln.",
-          "tool_todo_injector": "Fügt offene Einträge aus der To-do-Liste 'AI Plugin - Injektor' (todo.ai_plugin_injektor) bei jeder Anfrage als verbindliche Regeln in den Prompt ein. Setzt Home Assistants lokale To-do-Integration voraus; beim Einschalten legt das Plugin die Liste automatisch an, falls sie noch nicht existiert."
+          "tool_todo_injector": "Fügt offene Einträge aus der To-do-Liste 'AI Plugin - Injektor' (todo.ai_plugin_injektor) bei jeder Anfrage als verbindliche Regeln in den Prompt ein. Setzt Home Assistants lokale To-do-Integration voraus; beim Einschalten legt das Plugin die Liste automatisch an, falls sie noch nicht existiert. (z. B. „Titel und Beschreibung offener Einträge werden kombiniert eingefügt“). Pflicht ist es aber nicht."
         }
       }
     },

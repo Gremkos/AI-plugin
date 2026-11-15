@@ -134,11 +134,19 @@ class PromptBlocksMixin:
                 return_response=True,
             )
             items = (resp or {}).get(INJECTOR_TODO_ENTITY, {}).get("items", [])
-            rules = [
-                str(item["summary"]).strip()
-                for item in items
-                if isinstance(item, dict) and str(item.get("summary") or "").strip()
-            ]
+            rules: list[str] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                summary = str(item.get("summary") or "").strip()
+                if not summary:
+                    continue
+                desc = str(item.get("description") or "").strip()
+                if desc:
+                    sep = " " if summary.endswith(":") else ": "
+                    rules.append(f"{summary}{sep}{desc}")
+                else:
+                    rules.append(summary)
             if not rules:
                 return ""
             numbered = "\n".join(f"{i}. {rule}" for i, rule in enumerate(rules, 1))
