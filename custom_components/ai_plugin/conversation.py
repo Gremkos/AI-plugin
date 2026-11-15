@@ -32,7 +32,7 @@ from .orchestrator import Orchestrator
 
 _LOGGER = logging.getLogger(__name__)
 
-STATUS_ENTITY_ID = "sensor.alice_assist_status"
+STATUS_ENTITY_ID = "sensor.ai_plugin_assist_status"
 _STATUS_ICONS = {
     "idle": "mdi:robot-happy-outline",
     "listening": "mdi:microphone",
@@ -57,8 +57,10 @@ def async_set_assist_status(
         STATUS_ENTITY_ID,
         status,
         {
-            "friendly_name": "Alice Assist Status",
+            "friendly_name": "Assist Status",
             "icon": _STATUS_ICONS.get(status, "mdi:robot-outline"),
+            "device_class": "enum",
+            "options": ["idle", "listening", "processing", "responding"],
         },
     )
 
