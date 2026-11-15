@@ -42,16 +42,52 @@ _STATUS_ICONS = {
 _STAGE_TAG_RE = re.compile(r"\[[^\]]*\]")
 
 
+def _apply_media_ducking(hass: HomeAssistant, duck: bool) -> None:
+    """Lower active media_player volumes during Assist turns and restore on idle."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if duck:
+        if not domain_data.get("auto_ducking", False):
+            return
+        ducked: dict[str, float] = domain_data.setdefault("_ducked_players", {})
+        for state in hass.states.async_all("media_player"):
+            if state.state == "playing" and state.entity_id not in ducked:
+                vol = state.attributes.get("volume_level")
+                if isinstance(vol, (int, float)) and vol > 0.05:
+                    ducked[state.entity_id] = float(vol)
+                    target_vol = max(0.05, round(float(vol) * 0.25, 2))
+                    hass.async_create_task(
+                        hass.services.async_call(
+                            "media_player",
+                            "volume_set",
+                            {"entity_id": state.entity_id, "volume_level": target_vol},
+                        )
+                    )
+    else:
+        ducked = domain_data.pop("_ducked_players", {})
+        for entity_id, orig_vol in ducked.items():
+            current = hass.states.get(entity_id)
+            if current is not None and current.state not in ("unavailable", "unknown"):
+                hass.async_create_task(
+                    hass.services.async_call(
+                        "media_player",
+                        "volume_set",
+                        {"entity_id": entity_id, "volume_level": orig_vol},
+                    )
+                )
+
+
 def async_set_assist_status(
     hass: HomeAssistant,
     status: str,
     auto_idle_delay: float | None = None,
 ) -> None:
-    """Update sensor.alice_assist_status immediately in Home Assistant."""
+    """Update sensor.ai_plugin_assist_status immediately in Home Assistant."""
     domain_data = hass.data.setdefault(DOMAIN, {})
     old_timer: asyncio.TimerHandle | None = domain_data.pop("_status_timer", None)
     if old_timer is not None:
         old_timer.cancel()
+
+    _apply_media_ducking(hass, duck=(status != "idle"))
 
     hass.states.async_set(
         STATUS_ENTITY_ID,
@@ -113,6 +149,9 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
+        )
+        hass.data.setdefault(DOMAIN, {})["auto_ducking"] = bool(
+            entry.options.get("auto_ducking", False)
         )
 
     async def _async_handle_message(
@@ -215,4 +254,5 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         )
         if old_timer is not None:
             old_timer.cancel()
+        _apply_media_ducking(self.hass, duck=False)
         await self._orchestrator.async_close()

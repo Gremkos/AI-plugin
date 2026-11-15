@@ -260,6 +260,10 @@ def _advanced_schema(current: dict[str, Any], hass: Any) -> vol.Schema:
                 )
             ),
             vol.Optional(
+                "auto_ducking",
+                default=current.get("auto_ducking", False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
                 CONF_ENABLE_THINKING,
                 default=current.get(CONF_ENABLE_THINKING, DEFAULT_ENABLE_THINKING),
             ): selector.BooleanSelector(),

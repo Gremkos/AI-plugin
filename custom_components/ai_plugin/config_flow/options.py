@@ -43,6 +43,7 @@ from ..const import (
     ERROR_INVALID_URL,
     ERROR_MODEL_NO_TOOLS,
     ERROR_MODEL_REQUIRED,
+    DOMAIN,
 )
 from ..exceptions import CannotConnect
 from ..option_values import merge_advanced_options
@@ -313,6 +314,8 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
                 if key in user_input:
                     user_input[key] = float(user_input[key])
             self._options = merge_advanced_options(self._options, user_input)
+            self._options["auto_ducking"] = bool(user_input.get("auto_ducking", False))
+            self.hass.data.setdefault(DOMAIN, {})["auto_ducking"] = self._options["auto_ducking"]
             return self.async_create_entry(title="", data=self._options)
 
         return self.async_show_form(
