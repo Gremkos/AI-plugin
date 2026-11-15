@@ -6,6 +6,8 @@ import asyncio
 import logging
 import re
 
+from homeassistant.helpers.template import Template
+
 from ..const import (
     CONF_MEMORY_ENABLED,
     CONF_SYSTEM_PROMPT,
@@ -94,6 +96,7 @@ class PromptBlocksMixin:
         signed_in: str | None = None,
         system_prompt: str | None = None,
         tool_tokens: int | None = None,
+        room: str | None = None,
     ) -> str:
         """Per-turn context ([CURRENT TIME], [SPEAKER], [USER FACTS], [MANDATORY RULES], [LAST ACTION])."""
         facts = await self._build_user_facts_block(user_id)
@@ -109,7 +112,11 @@ class PromptBlocksMixin:
         parts = [
             self._build_time_block(),
             _speaker_block(
-                speaker, speaker_checked, self._memory_enabled(), signed_in=signed_in
+                speaker,
+                speaker_checked,
+                self._memory_enabled(),
+                signed_in=signed_in,
+                room=room,
             ),
             facts,
             injector,
@@ -118,6 +125,19 @@ class PromptBlocksMixin:
         if last:
             parts.append(f"[LAST ACTION]\n{last}")
         return "\n\n".join(p for p in parts if p)
+
+    def _render_injector_text(self, text: str) -> str:
+        """Render Home Assistant Jinja2 templates if present in injector text."""
+        if not text or ("{{" not in text and "{%" not in text):
+            return text
+        if self._hass is None:
+            return text
+        try:
+            rendered = Template(text, self._hass).async_render(parse_result=False)
+            return str(rendered).strip()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("AI Plugin: template error in todo injector (%r): %s", text, exc)
+            return text
 
     async def _build_injector_block(self) -> str:
         """Render active items from todo.ai_plugin_injektor as mandatory per-turn rules."""
@@ -138,11 +158,17 @@ class PromptBlocksMixin:
             for item in items:
                 if not isinstance(item, dict):
                     continue
-                summary = str(item.get("summary") or "").strip()
+                raw_summary = str(item.get("summary") or "").strip()
+                if not raw_summary:
+                    continue
+                summary = self._render_injector_text(raw_summary)
                 if not summary:
                     continue
-                desc = str(item.get("description") or "").strip()
-                if desc:
+                raw_desc = str(item.get("description") or "").strip()
+                if raw_desc:
+                    desc = self._render_injector_text(raw_desc)
+                    if not desc:
+                        continue
                     sep = " " if summary.endswith(":") else ": "
                     rules.append(f"{summary}{sep}{desc}")
                 else:
@@ -254,13 +280,19 @@ def _speaker_block(
     checked: bool,
     memory: bool = True,
     signed_in: str | None = None,
+    room: str | None = None,
 ) -> str:
     """[SPEAKER] block for this turn."""
+    room_note = (
+        f" The request comes from the device in: {room}. Treat 'here' or 'in this room' as {room} unless another room is named."
+        if room
+        else ""
+    )
     if signed_in and not speaker and not checked:
         return (
             "[SPEAKER]\n"
             f"The person speaking now is signed in on this device as {signed_in}. "
-            f"Treat them as {signed_in} unless they say they are someone else."
+            f"Treat them as {signed_in} unless they say they are someone else.{room_note}"
         )
     if speaker:
         return (
@@ -269,6 +301,7 @@ def _speaker_block(
             f"Treat them as {speaker}, even if earlier turns of this conversation "
             f"were someone else."
             + (f" The newest [USER FACTS] are {speaker}'s." if memory else "")
+            + room_note
         )
     if checked:
         return (
@@ -279,5 +312,8 @@ def _speaker_block(
             "Do not assume they are anyone named earlier in this conversation; "
             "ask if it matters."
             + (" Nothing can be saved to memory for them." if memory else "")
+            + room_note
         )
+    if room_note:
+        return f"[SPEAKER]\n{room_note.strip()}"
     return ""

@@ -721,6 +721,14 @@ class Orchestrator(
                 await self._context_mgr.add_turn(conversation_id, "assistant", forgot)
                 return forgot
 
+            caller_room = None
+            if device_id and self._hass is not None:
+                _area_id = _caller_area_id(self._hass, device_id)
+                if _area_id:
+                    _area = ar.async_get(self._hass).async_get_area(_area_id)
+                    if _area is not None:
+                        caller_room = _area.name
+
             volatile = await self._build_volatile_block(
                 user_id,
                 conversation_id,
@@ -729,6 +737,7 @@ class Orchestrator(
                 signed_in=self._signed_in_name(user_id),
                 system_prompt=system_prompt,
                 tool_tokens=schema_tokens,
+                room=caller_room,
             )
             notes, _diary_texts = await self._diary_recall_block(
                 message, conversation_id, diary_owner, system_prompt, schema_tokens
@@ -1320,6 +1329,10 @@ class Orchestrator(
         available_tools: set[str] | None = None,
     ) -> str:
         """Route a tool call to ha_local, memory, web search, or MCP."""
+        if self._hass is not None:
+            self._hass.data.setdefault(DOMAIN, {}).setdefault(
+                "_status_meta", {"area": None, "emotion": None, "last_tool": None}
+            )["last_tool"] = name
         arguments, refused = self._confine_to_this_room(
             name, arguments, user_message, device_id
         )

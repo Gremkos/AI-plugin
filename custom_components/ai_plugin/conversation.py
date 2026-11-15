@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 import logging
 import re
 
@@ -13,10 +14,11 @@ from homeassistant.components.conversation import (
     ConversationResult,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers import intent
+from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
+from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er, intent
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import ulid as ulid_util
 
 from .const import (
@@ -39,7 +41,66 @@ _STATUS_ICONS = {
     "processing": "mdi:brain",
     "responding": "mdi:account-voice",
 }
-_STAGE_TAG_RE = re.compile(r"\[[^\]]*\]")
+_STAGE_TAG_RE = re.compile(r"\[([^\]]+)\]")
+_PLAYER_DONE_STATES = frozenset({"idle", "paused", "off", "standby"})
+_UNSET = object()
+
+
+def _resolve_device_area(hass: HomeAssistant, device_id: str | None) -> str | None:
+    """Resolve Home Assistant area name for a device_id."""
+    if not device_id:
+        return None
+    try:
+        dev = dr.async_get(hass).async_get(device_id)
+        if dev is None or not dev.area_id:
+            return None
+        area = ar.async_get(hass).async_get_area(dev.area_id)
+        return area.name if area is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _device_media_player(hass: HomeAssistant, device_id: str | None) -> str | None:
+    """Find a media_player entity belonging to device_id, if any."""
+    if not device_id:
+        return None
+    try:
+        for entry in er.async_entries_for_device(er.async_get(hass), device_id):
+            if entry.entity_id.startswith("media_player."):
+                return entry.entity_id
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _extract_emotion(reply: str) -> str | None:
+    """Extract the first [emotion] tag from reply, if present."""
+    match = _STAGE_TAG_RE.search(reply or "")
+    if not match:
+        return None
+    tag = match.group(1).strip().lower()
+    return tag or None
+
+
+def async_update_assist_meta(
+    hass: HomeAssistant,
+    *,
+    area: str | None | object = _UNSET,
+    emotion: str | None | object = _UNSET,
+    last_tool: str | None | object = _UNSET,
+) -> None:
+    """Update metadata attributes stored for sensor.ai_plugin_assist_status."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    meta: dict[str, str | None] = domain_data.setdefault(
+        "_status_meta",
+        {"area": None, "emotion": None, "last_tool": None},
+    )
+    if area is not _UNSET:
+        meta["area"] = area  # type: ignore[assignment]
+    if emotion is not _UNSET:
+        meta["emotion"] = emotion  # type: ignore[assignment]
+    if last_tool is not _UNSET:
+        meta["last_tool"] = last_tool  # type: ignore[assignment]
 
 
 def _apply_media_ducking(hass: HomeAssistant, duck: bool) -> None:
@@ -48,10 +109,24 @@ def _apply_media_ducking(hass: HomeAssistant, duck: bool) -> None:
     if duck:
         if not domain_data.get("auto_ducking", False):
             return
+        try:
+            from .music_ducking import real_volume  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            real_volume = None
+
         ducked: dict[str, float] = domain_data.setdefault("_ducked_players", {})
         for state in hass.states.async_all("media_player"):
-            if state.state == "playing" and state.entity_id not in ducked:
-                vol = state.attributes.get("volume_level")
+            if (
+                state.state == "playing"
+                and state.entity_id not in ducked
+                and state.attributes.get("device_class") != "tv"
+                and state.attributes.get("mass_player_type") != "group"
+            ):
+                vol = (
+                    real_volume(hass, state.entity_id)
+                    if real_volume is not None
+                    else state.attributes.get("volume_level")
+                )
                 if isinstance(vol, (int, float)) and vol > 0.05:
                     ducked[state.entity_id] = float(vol)
                     target_vol = max(0.05, round(float(vol) * 0.25, 2))
@@ -80,6 +155,8 @@ def async_set_assist_status(
     hass: HomeAssistant,
     status: str,
     auto_idle_delay: float | None = None,
+    watch_media_player: str | None = None,
+    expects_follow_up: bool = False,
 ) -> None:
     """Update sensor.ai_plugin_assist_status immediately in Home Assistant."""
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -87,7 +164,21 @@ def async_set_assist_status(
     if old_timer is not None:
         old_timer.cancel()
 
+    old_unsub: Callable[[], None] | None = domain_data.pop("_status_player_unsub", None)
+    if old_unsub is not None:
+        old_unsub()
+
+    if status == "idle":
+        async_update_assist_meta(hass, area=None, emotion=None)
+    elif status == "listening":
+        async_update_assist_meta(hass, emotion=None)
+
     _apply_media_ducking(hass, duck=(status != "idle"))
+
+    meta = domain_data.setdefault(
+        "_status_meta",
+        {"area": None, "emotion": None, "last_tool": None},
+    )
 
     hass.states.async_set(
         STATUS_ENTITY_ID,
@@ -97,8 +188,42 @@ def async_set_assist_status(
             "icon": _STATUS_ICONS.get(status, "mdi:robot-outline"),
             "device_class": "enum",
             "options": ["idle", "listening", "processing", "responding"],
+            "area": meta.get("area"),
+            "emotion": meta.get("emotion"),
+            "last_tool": meta.get("last_tool"),
         },
     )
+
+    if status == "responding" and watch_media_player:
+        player_state = hass.states.get(watch_media_player)
+        seen_playing = player_state is not None and player_state.state == "playing"
+
+        @callback
+        def _on_player_change(event: Event) -> None:
+            nonlocal seen_playing
+            new_state = event.data.get("new_state")
+            if new_state is None:
+                return
+            if new_state.state == "playing":
+                seen_playing = True
+                return
+            if seen_playing and new_state.state in _PLAYER_DONE_STATES:
+                unsub = domain_data.pop("_status_player_unsub", None)
+                if unsub is not None:
+                    unsub()
+                settle = 4.0 if expects_follow_up else 0.4
+                async_set_assist_status(hass, "idle", auto_idle_delay=None) if settle <= 0 else None
+                t_old: asyncio.TimerHandle | None = domain_data.pop("_status_timer", None)
+                if t_old is not None:
+                    t_old.cancel()
+                domain_data["_status_timer"] = asyncio.get_running_loop().call_later(
+                    settle,
+                    lambda: async_set_assist_status(hass, "idle"),
+                )
+
+        domain_data["_status_player_unsub"] = async_track_state_change_event(
+            hass, [watch_media_player], _on_player_change
+        )
 
     if auto_idle_delay is not None and auto_idle_delay > 0:
         loop = asyncio.get_running_loop()
@@ -123,6 +248,24 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the AI Plugin conversation entity from a config entry."""
+    if not hass.services.has_service(DOMAIN, "set_assist_status"):
+        async def _handle_set_assist_status(call: ServiceCall) -> None:
+            new_status = str(call.data.get("status", "idle")).strip().lower()
+            if new_status not in _STATUS_ICONS:
+                new_status = "idle"
+            delay = call.data.get("auto_idle_delay")
+            async_set_assist_status(
+                hass,
+                new_status,
+                auto_idle_delay=float(delay) if delay is not None else None,
+            )
+
+        hass.services.async_register(
+            DOMAIN,
+            "set_assist_status",
+            _handle_set_assist_status,
+        )
+
     entity = AIPluginConversationEntity(hass, config_entry)
     hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {})["conversation_entity"] = entity
     async_add_entities([entity])
@@ -158,6 +301,8 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         self, user_input: ConversationInput, chat_log
     ) -> ConversationResult:
         """Process a user message from HA Assist and return a reply."""
+        area_name = _resolve_device_area(self.hass, user_input.device_id)
+        async_update_assist_meta(self.hass, area=area_name, emotion=None)
         async_set_assist_status(self.hass, "processing")
 
         user_id: str | None = (
@@ -229,10 +374,14 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         else:
             continue_conversation = mode == FOLLOW_UP_ALWAYS
 
+        async_update_assist_meta(self.hass, emotion=_extract_emotion(reply))
+        player_entity = _device_media_player(self.hass, user_input.device_id)
         async_set_assist_status(
             self.hass,
             "responding",
             auto_idle_delay=_estimate_speech_seconds(reply, continue_conversation),
+            watch_media_player=player_entity,
+            expects_follow_up=continue_conversation,
         )
 
         return ConversationResult(
@@ -249,10 +398,12 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Close provider sessions when the entity is removed."""
-        old_timer: asyncio.TimerHandle | None = self.hass.data.get(DOMAIN, {}).pop(
-            "_status_timer", None
-        )
+        domain_data = self.hass.data.get(DOMAIN, {})
+        old_timer: asyncio.TimerHandle | None = domain_data.pop("_status_timer", None)
         if old_timer is not None:
             old_timer.cancel()
+        old_unsub: Callable[[], None] | None = domain_data.pop("_status_player_unsub", None)
+        if old_unsub is not None:
+            old_unsub()
         _apply_media_ducking(self.hass, duck=False)
         await self._orchestrator.async_close()
