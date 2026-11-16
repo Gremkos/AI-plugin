@@ -384,7 +384,9 @@
           "tool_broadcast": "Announcements",
           "tool_move_music": "Move music to another room",
           "tool_find_phone": "Find my phone",
-          "tool_todo_injector": "Prompt injector via To-do list"
+          "tool_todo_injector": "Prompt injector via To-do list",
+          "offline_fallback": "Offline fallback to Home Assistant Assist",
+          "worker_status_entity": "Backend status sensor (optional)"
         },
         "data_description": {
           "tool_timers": "\"Set a timer for 10 minutes\": a voice timer on the satellite, with pause, add time and \"how long left\".",
@@ -394,7 +396,9 @@
           "tool_broadcast": "\"Announce that dinner is ready\" is spoken on the satellites in all other rooms. Off, Home Assistant's own announcement tool is left out too, so your own announcement script gets the request.",
           "tool_move_music": "\"Move the music to the bedroom\". Needs Music Assistant.",
           "tool_find_phone": "\"Where is my phone?\" rings the phone of the person asking.",
-          "tool_todo_injector": "Injects open items from the 'AI Plugin - Injektor' (todo.ai_plugin_injektor) to-do list as mandatory rules into every turn. Requires Home Assistant's Local To-do integration; when enabled, the plugin automatically creates the list if it does not exist yet. (e.g., “the title and description of open entries are combined and inserted”). However, this is not mandatory."
+          "tool_todo_injector": "Injects open items from the 'AI Plugin - Injektor' (todo.ai_plugin_injektor) to-do list as mandatory rules into every turn. Requires Home Assistant's Local To-do integration; when enabled, the plugin automatically creates the list if it does not exist yet. (e.g., “the title and description of open entries are combined and inserted”). However, this is not mandatory.",
+          "offline_fallback": "Automatically routes requests to Home Assistant's built-in Assist when the AI server is asleep or unreachable.",
+          "worker_status_entity": "Optional sensor reporting the AI backend state (e.g. offline or idle). When offline, requests are forwarded immediately without waiting for a timeout."
         }
       }
     },

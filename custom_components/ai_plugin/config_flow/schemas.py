@@ -43,12 +43,14 @@ from ..const import (
     CONF_SYSTEM_PROMPT,
     CONF_TIMER_ANNOUNCE,
     CONF_MEMORY_ENABLED,
+    CONF_OFFLINE_FALLBACK,
     CONF_TAVILY_API_KEY,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     CONF_VOICE_MODE,
     CONF_WEB_SEARCH_BACKEND,
     CONF_WEB_SEARCH_ENABLED,
+    CONF_WORKER_STATUS_ENTITY,
     FEATURE_TOOLS,
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_FOLLOW_UP_DELAY,
@@ -71,6 +73,7 @@ from ..const import (
     DEFAULT_SUMMARIZATION_ENABLED,
     DEFAULT_VOICE_MODE,
     DEFAULT_WEB_SEARCH_BACKEND,
+    DEFAULT_OFFLINE_FALLBACK,
     CUSTOM_PROMPT_TEMPLATE,
     FOLLOW_UP_ALWAYS,
     FOLLOW_UP_AUTO,
@@ -210,6 +213,22 @@ def _tools_schema(current: dict[str, Any]) -> vol.Schema:
             default=current.get("tool_todo_injector", False),
         )
     ] = selector.BooleanSelector()
+    schema[
+        vol.Optional(
+            CONF_OFFLINE_FALLBACK,
+            default=current.get(CONF_OFFLINE_FALLBACK, DEFAULT_OFFLINE_FALLBACK),
+        )
+    ] = selector.BooleanSelector()
+    schema[
+        vol.Optional(
+            CONF_WORKER_STATUS_ENTITY,
+            description={
+                "suggested_value": current.get(CONF_WORKER_STATUS_ENTITY)
+            },
+        )
+    ] = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="sensor")
+    )
     return vol.Schema(schema)
 
 

@@ -165,6 +165,9 @@ def tools_off(options) -> frozenset[str]:
     return frozenset().union(*(FEATURE_TOOLS[key] for key in features_off(options)))
 
 
+CONF_OFFLINE_FALLBACK = "offline_fallback"
+DEFAULT_OFFLINE_FALLBACK = False
+CONF_WORKER_STATUS_ENTITY = "worker_status_entity"
 CONF_MAX_TOOL_ITERATIONS = "max_tool_iterations"
 CONF_RESPONSE_TIMEOUT = "response_timeout"
 CONF_ENABLE_THINKING = "enable_thinking"

@@ -38,6 +38,7 @@ from ..const import (
     CONF_TOP_P,
     CONF_WEB_SEARCH_BACKEND,
     CONF_WEB_SEARCH_ENABLED,
+    CONF_WORKER_STATUS_ENTITY,
     DEFAULT_BASE_URL,
     DEFAULT_WEB_SEARCH_BACKEND,
     ERROR_INVALID_URL,
@@ -300,6 +301,8 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
                     errors["tool_todo_injector"] = "todo_injector_unavailable"
 
             if not errors:
+                if CONF_WORKER_STATUS_ENTITY not in user_input:
+                    user_input[CONF_WORKER_STATUS_ENTITY] = None
                 self._options = {**self._options, **user_input}
                 return self.async_create_entry(title="", data=self._options)
 

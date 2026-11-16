@@ -386,7 +386,9 @@
           "tool_broadcast": "Durchsagen",
           "tool_move_music": "Musik in einen anderen Raum verschieben",
           "tool_find_phone": "Mein Telefon finden",
-          "tool_todo_injector": "Prompt-Injektor über To-do-Liste"
+          "tool_todo_injector": "Prompt-Injektor über To-do-Liste",
+          "offline_fallback": "Offline-Fallback auf Home Assistant Assist",
+          "worker_status_entity": "Backend-Status-Sensor (optional)"
         },
         "data_description": {
           "tool_timers": "\"Stelle einen Timer auf 10 Minuten\": ein Sprach-Timer auf dem Satelliten mit Pause, Zeit hinzufügen und \"Wie lange noch?\".",
@@ -396,7 +398,9 @@
           "tool_broadcast": "\"Sage durch, dass das Essen fertig ist\" wird auf den Satelliten in allen anderen Räumen angesagt.",
           "tool_move_music": "\"Schiebe die Musik ins Schlafzimmer\". Benötigt Music Assistant.",
           "tool_find_phone": "\"Wo ist mein Telefon?\" lässt das Telefon der fragenden Person klingeln.",
-          "tool_todo_injector": "Fügt offene Einträge aus der To-do-Liste 'AI Plugin - Injektor' (todo.ai_plugin_injektor) bei jeder Anfrage als verbindliche Regeln in den Prompt ein. Setzt Home Assistants lokale To-do-Integration voraus; beim Einschalten legt das Plugin die Liste automatisch an, falls sie noch nicht existiert. (z. B. „Titel und Beschreibung offener Einträge werden kombiniert eingefügt“). Pflicht ist es aber nicht."
+          "tool_todo_injector": "Fügt offene Einträge aus der To-do-Liste 'AI Plugin - Injektor' (todo.ai_plugin_injektor) bei jeder Anfrage als verbindliche Regeln in den Prompt ein. Setzt Home Assistants lokale To-do-Integration voraus; beim Einschalten legt das Plugin die Liste automatisch an, falls sie noch nicht existiert. (z. B. „Titel und Beschreibung offener Einträge werden kombiniert eingefügt“). Pflicht ist es aber nicht.",
+          "offline_fallback": "Leitet Anfragen automatisch an den integrierten Home Assistant Assist weiter, wenn der KI-Server schläft oder nicht erreichbar ist.",
+          "worker_status_entity": "Optionaler Sensor, der den Zustand des KI-Backends meldet (z. B. offline oder idle). Meldet er offline, wird ohne Wartezeit direkt umgeschaltet."
         }
       }
     },

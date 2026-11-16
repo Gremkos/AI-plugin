@@ -22,6 +22,9 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import ulid as ulid_util
 
 from .const import (
+    CONF_OFFLINE_FALLBACK,
+    CONF_WORKER_STATUS_ENTITY,
+    DEFAULT_OFFLINE_FALLBACK,
     DOMAIN,
     FOLLOW_UP_ALWAYS,
     FOLLOW_UP_AUTO,
@@ -297,6 +300,77 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             entry.options.get("auto_ducking", False)
         )
 
+    def _is_offline_fallback_enabled(self) -> bool:
+        """Return True if offline fallback to HA Assist is enabled."""
+        return bool(
+            self._entry.options.get(
+                CONF_OFFLINE_FALLBACK,
+                self._entry.data.get(CONF_OFFLINE_FALLBACK, DEFAULT_OFFLINE_FALLBACK),
+            )
+        )
+
+    def _is_worker_offline(self) -> bool:
+        """Return True when a configured backend status sensor reports offline."""
+        worker_entity = self._entry.options.get(
+            CONF_WORKER_STATUS_ENTITY,
+            self._entry.data.get(CONF_WORKER_STATUS_ENTITY),
+        )
+        if not worker_entity:
+            return False
+        state_obj = self.hass.states.get(worker_entity)
+        return state_obj is not None and state_obj.state in (
+            "offline",
+            "unavailable",
+            "unknown",
+        )
+
+    @staticmethod
+    def _is_connection_error(exc: Exception) -> bool:
+        """Return True if an OrchestratorError indicates an unreachable backend."""
+        msg = str(exc).lower()
+        return any(
+            token in msg
+            for token in (
+                "cannot connect",
+                "cannot_connect",
+                "connection",
+                "timed out",
+                "timeout",
+                "unreachable",
+                "refused",
+            )
+        )
+
+    async def _delegate_to_ha_assist(
+        self, user_input: ConversationInput, conversation_id: str
+    ) -> ConversationResult:
+        """Forward the turn to Home Assistant's built-in conversation agent."""
+        _LOGGER.debug(
+            "AI Plugin offline fallback active -> delegating to conversation.home_assistant"
+        )
+        result = await conversation.async_converse(
+            hass=self.hass,
+            text=user_input.text,
+            conversation_id=conversation_id,
+            context=user_input.context,
+            language=user_input.language or self.hass.config.language,
+            agent_id="conversation.home_assistant",
+            device_id=user_input.device_id,
+            satellite_id=user_input.satellite_id,
+        )
+        speech_plain = result.response.speech.get("plain", {}).get("speech", "")
+        player_entity = _device_media_player(self.hass, user_input.device_id)
+        async_set_assist_status(
+            self.hass,
+            "responding",
+            auto_idle_delay=_estimate_speech_seconds(
+                speech_plain, result.continue_conversation
+            ),
+            watch_media_player=player_entity,
+            expects_follow_up=result.continue_conversation,
+        )
+        return result
+
     async def _async_handle_message(
         self, user_input: ConversationInput, chat_log
     ) -> ConversationResult:
@@ -319,6 +393,9 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             user_id,
             user_input.text[:80],
         )
+
+        if self._is_offline_fallback_enabled() and self._is_worker_offline():
+            return await self._delegate_to_ha_assist(user_input, conversation_id)
 
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         consumer: asyncio.Task | None = None
@@ -355,6 +432,11 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
                 on_delta=_on_delta if stream_capable else None,
             )
         except OrchestratorError as exc:
+            if self._is_offline_fallback_enabled() and self._is_connection_error(exc):
+                _LOGGER.warning(
+                    "AI Plugin backend unreachable (%s), delegating to HA Assist", exc
+                )
+                return await self._delegate_to_ha_assist(user_input, conversation_id)
             _LOGGER.error("AI Plugin error processing message: %s", exc)
             _lang = (user_input.language or "en").split("-")[0].lower()
             reply = f"{L.template('err_process', _lang)} ({exc})"
