@@ -185,8 +185,8 @@
         "title": "Voice, vision & audio",
         "description": "Multimodal capabilities (camera snapshots & audio input) alongside voice mode, follow-up listening, and auto-ducking.",
         "data": {
-          "camera_vision_enabled": "Enable camera vision (Alice's eyes)",
-          "audio_input_enabled": "Enable audio input (Alice's ears)",
+          "camera_vision_enabled": "Enable camera vision",
+          "audio_input_enabled": "Enable audio input (Replaces STT)",
           "voice_mode": "Use compact prompts for voice",
           "continue_conversation": "Listen for a follow-up after voice replies",
           "follow_up_delay": "Quiet gap before listening again (seconds)",

@@ -185,8 +185,8 @@
         "title": "Sprache, Sehen & Hören",
         "description": "Multimodale Fähigkeiten (Kamera-Snapshots & Audio-Input) sowie Sprachausgabe, Nachfragen und Auto-Ducking.",
         "data": {
-          "camera_vision_enabled": "Kamera-Zugriff aktivieren (Alices Augen)",
-          "audio_input_enabled": "Audio-Input aktivieren (Alices Ohren)",
+          "camera_vision_enabled": "Kamera-Zugriff aktivieren",
+          "audio_input_enabled": "Audio-Input aktivieren (Ersetzt STT)",
           "voice_mode": "Kompakte Prompts für Sprachausgabe verwenden",
           "continue_conversation": "Nach Sprachantworten auf Rückfragen hören",
           "follow_up_delay": "Stille Pause vor erneutem Zuhören (Sekunden)",
