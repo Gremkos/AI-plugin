@@ -566,3 +566,11 @@ CONF_VOICE_ID_MARGIN = "voice_id_margin"
 # How long an LLM turn may wait for the fingerprint before it proceeds as
 # "unknown". 6 s of speech took 0.8-1.0 s on an Odroid N2.
 VOICE_ID_WAIT_SECONDS = 1.5
+
+# Multimodal Vision & Audio Input ("Alices Augen & Ohren")
+CONF_CAMERA_VISION_ENABLED = "camera_vision_enabled"
+DEFAULT_CAMERA_VISION_ENABLED = False
+CONF_AUDIO_INPUT_ENABLED = "audio_input_enabled"
+DEFAULT_AUDIO_INPUT_ENABLED = False
+CONF_AUTO_DUCKING = "auto_ducking"
+DEFAULT_AUTO_DUCKING = False

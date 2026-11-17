@@ -1,17 +1,8 @@
-"""Post-install Configure: every setting except the ones that are fixed.
-
-  Menu ─ init                Provider settings / Web search / Advanced / MCP
-  Step  ─ provider_settings  base_url + model + api_key
-  Step  ─ web_search         as config step 3, plus searxng if selected
-  Step  ─ advanced           as config step 4
-  Step  ─ mcp_servers        add / edit / remove, in mcp_steps.py
-  Menu  ─ voice_id           voice recognition, in voice_id_steps.py
-"""
+"""Post-install Configure: modular sub-menus for every setting."""
 
 from __future__ import annotations
 
 import logging
-
 from typing import Any
 
 import voluptuous as vol
@@ -20,13 +11,19 @@ from homeassistant import config_entries
 from homeassistant.helpers import selector
 
 from ..const import (
+    BACKEND_SEARXNG,
+    CONF_API_KEY,
+    CONF_AUDIO_INPUT_ENABLED,
+    CONF_AUTO_DUCKING,
+    CONF_BASE_URL,
+    CONF_CAMERA_VISION_ENABLED,
+    CONF_CONTEXT_WINDOW,
     CONF_CONVERSATION_MEMORY,
     CONF_DIARY_DAYS,
     CONF_ENABLE_THINKING,
-    BACKEND_SEARXNG,
-    CONF_API_KEY,
-    CONF_BASE_URL,
-    CONF_CONTEXT_WINDOW,
+    CONF_FEEDBACK_LOOP_DEVICES,
+    CONF_KEEP_ALIVE,
+    CONF_LOCATION_ENTITY,
     CONF_MAX_RESULTS,
     CONF_MAX_TOKENS,
     CONF_MAX_TOOL_ITERATIONS,
@@ -41,10 +38,10 @@ from ..const import (
     CONF_WORKER_STATUS_ENTITY,
     DEFAULT_BASE_URL,
     DEFAULT_WEB_SEARCH_BACKEND,
+    DOMAIN,
     ERROR_INVALID_URL,
     ERROR_MODEL_NO_TOOLS,
     ERROR_MODEL_REQUIRED,
-    DOMAIN,
 )
 from ..exceptions import CannotConnect
 from ..option_values import merge_advanced_options
@@ -55,63 +52,61 @@ from ..providers.openai_compat import (
     model_context_length,
     model_limit_errors,
 )
-
-
 from .mcp_steps import MCPServerStepsMixin
-from .voice_id_steps import VoiceIDStepsMixin
 from .schemas import (
     _advanced_schema,
-    _memory_schema,
     _is_valid_url,
+    _llm_settings_schema,
+    _memory_schema,
+    _system_fallback_schema,
     _tools_schema,
     _validate_advanced_input,
+    _vision_audio_schema,
     _web_search_schema,
 )
+from .voice_id_steps import VoiceIDStepsMixin
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries.OptionsFlow):
-    """Options flow: edit all non-credential settings post-install.
-
-    Menu:
-      ┌─ Provider settings  (URL + model + API key)
-      ├─ Web search         (toggle, backend, keys)
-      ├─ Advanced           (system prompt, context, voice, etc.)
-      └─ MCP servers        (stub — Week 3)
-    """
+    """Options flow with clean topic sub-menus."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
         self._options = dict(config_entry.options)
         self._models: list[str] | None = None
-        # Working copy of MCP server list — committed on "Save and close"
         self._pending_mcp: list[dict] = list(
             config_entry.options.get(CONF_MCP_SERVERS, [])
         )
-        # Index of server currently being edited (None when not editing)
         self._editing_idx: int | None = None
-        # Key of the preset currently being configured (None when not in preset flow)
         self._preset_key: str | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Show the top-level menu."""
+        """Show the top-level categorized menu."""
         return self.async_show_menu(
             step_id="init",
             menu_options=[
-                "provider_settings", "web_search", "memory", "tools", "advanced",
-                "mcp_servers", "voice_id",
+                "provider_settings",
+                "llm_settings",
+                "tools",
+                "vision_audio",
+                "web_search",
+                "memory",
+                "voice_id",
+                "mcp_servers",
+                "system_fallback",
             ],
         )
 
-    # ── Provider settings ────────────────────────────────────────────────────
+    # ── 1. Provider settings ─────────────────────────────────────────────────
 
     async def async_step_provider_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Edit provider URL → fetch models → model selection."""
+        """Edit provider URL -> fetch models -> model selection."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -166,7 +161,8 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
                 errors[CONF_MODEL] = ERROR_MODEL_REQUIRED
             else:
                 show = await async_show_model(
-                    str(self._options.get(CONF_BASE_URL, "")), model,
+                    str(self._options.get(CONF_BASE_URL, "")),
+                    model,
                     api_key=self._options.get(CONF_API_KEY),
                 )
                 caps = model_capabilities(show)
@@ -199,7 +195,134 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
             errors=errors,
         )
 
-    # ── Web search ───────────────────────────────────────────────────────────
+    # ── 2. Model & response behavior ─────────────────────────────────────────
+
+    async def async_step_llm_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Edit system prompt, context window, reasoning, and sampling."""
+        if user_input is not None:
+            errors = _validate_advanced_input(user_input)
+            if not errors and (
+                user_input.get(CONF_CONTEXT_WINDOW)
+                or user_input.get(CONF_ENABLE_THINKING)
+            ):
+                _show = await async_show_model(
+                    str(self._options.get(CONF_BASE_URL, "")),
+                    str(self._options.get(CONF_MODEL, "")),
+                    api_key=self._options.get(CONF_API_KEY),
+                )
+                errors = model_limit_errors(
+                    user_input,
+                    model_capabilities(_show),
+                    model_context_length(_show),
+                )
+            if errors:
+                return self.async_show_form(
+                    step_id="llm_settings",
+                    data_schema=_llm_settings_schema({**self._options, **user_input}),
+                    errors=errors,
+                )
+
+            for key in (CONF_CONTEXT_WINDOW, CONF_RESPONSE_TIMEOUT):
+                if key in user_input:
+                    user_input[key] = int(user_input[key])
+
+            if CONF_MAX_TOKENS in user_input and user_input[CONF_MAX_TOKENS] is not None:
+                user_input[CONF_MAX_TOKENS] = int(user_input[CONF_MAX_TOKENS])
+            else:
+                self._options.pop(CONF_MAX_TOKENS, None)
+
+            for key in (CONF_TEMPERATURE, CONF_TOP_P):
+                if key in user_input and user_input[key] is not None:
+                    user_input[key] = float(user_input[key])
+                else:
+                    self._options.pop(key, None)
+
+            user_input[CONF_KEEP_ALIVE] = str(user_input.get(CONF_KEEP_ALIVE, "")).strip()
+
+            self._options = {**self._options, **user_input}
+            return self.async_create_entry(title="", data=self._options)
+
+        return self.async_show_form(
+            step_id="llm_settings",
+            data_schema=_llm_settings_schema(self._options),
+        )
+
+    # ── 3. Tools & features ──────────────────────────────────────────────────
+
+    async def async_step_tools(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """The built-in features, each one on or off."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if (
+                user_input.get("tool_todo_injector")
+                and self.hass.states.get("todo.ai_plugin_injektor") is None
+            ):
+                try:
+                    flow = await self.hass.config_entries.flow.async_init(
+                        "local_todo",
+                        context={"source": config_entries.SOURCE_USER},
+                    )
+                    if flow.get("type") == "form":
+                        field_name = "todo_list_name"
+                        data_schema = flow.get("data_schema")
+                        if data_schema is not None and hasattr(data_schema, "schema"):
+                            for key in data_schema.schema:
+                                if hasattr(key, "schema"):
+                                    field_name = str(key.schema)
+                                    break
+                        await self.hass.config_entries.flow.async_configure(
+                            flow["flow_id"],
+                            {field_name: "AI Plugin - Injektor"},
+                        )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "AI Plugin: could not auto-create local_todo list",
+                        exc_info=True,
+                    )
+                    errors["tool_todo_injector"] = "todo_injector_unavailable"
+
+            if not errors:
+                self._options = {**self._options, **user_input}
+                return self.async_create_entry(title="", data=self._options)
+
+        return self.async_show_form(
+            step_id="tools",
+            data_schema=_tools_schema(self._options),
+            errors=errors,
+        )
+
+    # ── 4. Voice, vision & audio ─────────────────────────────────────────────
+
+    async def async_step_vision_audio(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        """Edit voice behavior, auto-ducking, camera vision, and audio input."""
+        if user_input is not None:
+            if CONF_FEEDBACK_LOOP_DEVICES not in user_input:
+                self._options.pop(CONF_FEEDBACK_LOOP_DEVICES, None)
+            self._options = {**self._options, **user_input}
+            self._options[CONF_AUTO_DUCKING] = bool(user_input.get(CONF_AUTO_DUCKING, False))
+            self._options[CONF_CAMERA_VISION_ENABLED] = bool(
+                user_input.get(CONF_CAMERA_VISION_ENABLED, False)
+            )
+            self._options[CONF_AUDIO_INPUT_ENABLED] = bool(
+                user_input.get(CONF_AUDIO_INPUT_ENABLED, False)
+            )
+            self.hass.data.setdefault(DOMAIN, {})["auto_ducking"] = self._options[
+                CONF_AUTO_DUCKING
+            ]
+            return self.async_create_entry(title="", data=self._options)
+
+        return self.async_show_form(
+            step_id="vision_audio",
+            data_schema=_vision_audio_schema(self._options),
+        )
+
+    # ── 5. Web search ────────────────────────────────────────────────────────
 
     async def async_step_web_search(
         self, user_input: dict[str, Any] | None = None
@@ -247,7 +370,7 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
             errors=errors,
         )
 
-    # ── Memory ───────────────────────────────────────────────────────────────
+    # ── 6. Memory ────────────────────────────────────────────────────────────
 
     async def async_step_memory(
         self, user_input: dict[str, Any] | None = None
@@ -264,68 +387,39 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
             data_schema=_memory_schema(self._options),
         )
 
-    # ── Tools ────────────────────────────────────────────────────────────────
+    # ── 7. System, location & fallback ───────────────────────────────────────
 
-    async def async_step_tools(
+    async def async_step_system_fallback(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """The built-in features, each one on or off."""
-        errors: dict[str, str] = {}
+        """Edit offline fallback, tool limits, prompt caching, and location."""
         if user_input is not None:
-            if (
-                user_input.get("tool_todo_injector")
-                and self.hass.states.get("todo.ai_plugin_injektor") is None
-            ):
-                try:
-                    flow = await self.hass.config_entries.flow.async_init(
-                        "local_todo",
-                        context={"source": config_entries.SOURCE_USER},
-                    )
-                    if flow.get("type") == "form":
-                        field_name = "todo_list_name"
-                        data_schema = flow.get("data_schema")
-                        if data_schema is not None and hasattr(data_schema, "schema"):
-                            for key in data_schema.schema:
-                                if hasattr(key, "schema"):
-                                    field_name = str(key.schema)
-                                    break
-                        await self.hass.config_entries.flow.async_configure(
-                            flow["flow_id"],
-                            {field_name: "AI Plugin - Injektor"},
-                        )
-                except Exception:  # noqa: BLE001
-                    _LOGGER.warning(
-                        "AI Plugin: could not auto-create local_todo list",
-                        exc_info=True,
-                    )
-                    errors["tool_todo_injector"] = "todo_injector_unavailable"
-
-            if not errors:
-                if CONF_WORKER_STATUS_ENTITY not in user_input:
-                    user_input[CONF_WORKER_STATUS_ENTITY] = None
-                self._options = {**self._options, **user_input}
-                return self.async_create_entry(title="", data=self._options)
+            if CONF_MAX_TOOL_ITERATIONS in user_input:
+                user_input[CONF_MAX_TOOL_ITERATIONS] = int(user_input[CONF_MAX_TOOL_ITERATIONS])
+            if CONF_WORKER_STATUS_ENTITY not in user_input:
+                user_input[CONF_WORKER_STATUS_ENTITY] = None
+            if CONF_LOCATION_ENTITY not in user_input:
+                self._options.pop(CONF_LOCATION_ENTITY, None)
+            self._options = {**self._options, **user_input}
+            return self.async_create_entry(title="", data=self._options)
 
         return self.async_show_form(
-            step_id="tools",
-            data_schema=_tools_schema(self._options),
-            errors=errors,
+            step_id="system_fallback",
+            data_schema=_system_fallback_schema(self._options),
         )
 
-    # ── Advanced ─────────────────────────────────────────────────────────────
+    # ── Legacy fallback step ─────────────────────────────────────────────────
 
     async def async_step_advanced(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """Edit advanced settings."""
+        """Legacy combined advanced step (kept for compatibility)."""
         if user_input is not None:
             errors = _validate_advanced_input(user_input)
             if not errors and (
                 user_input.get(CONF_CONTEXT_WINDOW)
                 or user_input.get(CONF_ENABLE_THINKING)
             ):
-                # Fail-open Ollama check: refuse what the model cannot do,
-                # here where it can be said, not later on a voice turn.
                 _show = await async_show_model(
                     str(self._options.get(CONF_BASE_URL, "")),
                     str(self._options.get(CONF_MODEL, "")),
@@ -342,15 +436,23 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
                     data_schema=_advanced_schema(user_input, self.hass),
                     errors=errors,
                 )
-            for key in (CONF_CONTEXT_WINDOW, CONF_MAX_TOOL_ITERATIONS, CONF_RESPONSE_TIMEOUT, CONF_MAX_RESULTS, CONF_MAX_TOKENS):
+            for key in (
+                CONF_CONTEXT_WINDOW,
+                CONF_MAX_TOOL_ITERATIONS,
+                CONF_RESPONSE_TIMEOUT,
+                CONF_MAX_RESULTS,
+                CONF_MAX_TOKENS,
+            ):
                 if key in user_input:
                     user_input[key] = int(user_input[key])
             for key in (CONF_TEMPERATURE, CONF_TOP_P):
                 if key in user_input:
                     user_input[key] = float(user_input[key])
             self._options = merge_advanced_options(self._options, user_input)
-            self._options["auto_ducking"] = bool(user_input.get("auto_ducking", False))
-            self.hass.data.setdefault(DOMAIN, {})["auto_ducking"] = self._options["auto_ducking"]
+            self._options[CONF_AUTO_DUCKING] = bool(user_input.get(CONF_AUTO_DUCKING, False))
+            self.hass.data.setdefault(DOMAIN, {})["auto_ducking"] = self._options[
+                CONF_AUTO_DUCKING
+            ]
             return self.async_create_entry(title="", data=self._options)
 
         return self.async_show_form(

@@ -125,12 +125,14 @@
         "title": "AI Plugin konfigurieren",
         "menu_options": {
           "provider_settings": "Anbieter-Einstellungen",
+          "llm_settings": "Modell & Antwortverhalten",
+          "tools": "Tools & Funktionen",
+          "vision_audio": "Sprache, Sehen & Hören",
           "web_search": "Websuche",
           "memory": "Gedächtnis",
-          "tools": "Tools",
-          "advanced": "Erweitert",
+          "voice_id": "Stimmerkennung",
           "mcp_servers": "MCP-Server",
-          "voice_id": "Stimmerkennung"
+          "system_fallback": "System, Standort & Fallback"
         }
       },
       "provider_settings": {
@@ -151,6 +153,78 @@
         },
         "data_description": {
           "model": "z. B. llama3.2:3b, qwen2.5:7b, mistral"
+        }
+      },
+      "llm_settings": {
+        "title": "Modell & Antwortverhalten",
+        "description": "Steuert System-Prompt, Kontextlänge, Reasoning sowie Kreativität und Antwort-Limits deines KI-Modells.",
+        "data": {
+          "system_prompt": "Eigene Anweisungen",
+          "context_window": "Kontextfenster (Tokens)",
+          "summarization_enabled": "Lange Gespräche automatisch zusammenfassen",
+          "enable_thinking": "Modell-Reasoning aktivieren (Chain-of-Thought)",
+          "temperature": "Temperatur",
+          "top_p": "Top P",
+          "max_tokens": "Maximale Tokens (Ausgabe)",
+          "keep_alive": "Ollama Keep-Alive (z. B. 30m, -1)",
+          "response_timeout": "Zeitlimit (Sekunden)"
+        },
+        "data_description": {
+          "system_prompt": "Optionale Anweisungen, die jedem Gespräch hinzugefügt werden. Leer lassen für den Standardwert.",
+          "context_window": "Maximales Kontextfenster, das dein Modell unterstützt. Prüfe die Dokumentation deines Modells.",
+          "summarization_enabled": "Wenn Gespräche lang werden, fasst AI Plugin ältere Nachrichten zusammen, um den Kontext zu erhalten.",
+          "enable_thinking": "Erlaubt Reasoning-Modellen (z. B. qwen3, deepseek-r1) vor der Antwort interne Gedankengänge zu erzeugen. Standardmäßig aus – Assist benötigt direkte Antworten. Interne Denkblöcke werden immer herausgefiltert.",
+          "temperature": "Steuert die Kreativität. Niedriger = fokussierter, höher = kreativer. Leer lassen für den Standardwert des Modells.",
+          "top_p": "Schwellenwert für Nucleus-Sampling. Leer lassen für den Standardwert des Modells.",
+          "max_tokens": "Maximale Anzahl an Tokens in der Antwort der KI. 0 oder leer = kein Limit.",
+          "keep_alive": "Wie lange Ollama das Modell nach einer Anfrage im VRAM behält. Leer = Serverstandard (5m). -1 hält das Modell dauerhaft geladen.",
+          "response_timeout": "Wie lange auf eine Antwort der KI gewartet wird, bevor abgebrochen wird."
+        }
+      },
+      "vision_audio": {
+        "title": "Sprache, Sehen & Hören",
+        "description": "Multimodale Fähigkeiten (Kamera-Snapshots & Audio-Input) sowie Sprachausgabe, Nachfragen und Auto-Ducking.",
+        "data": {
+          "camera_vision_enabled": "Kamera-Zugriff aktivieren (Alices Augen)",
+          "audio_input_enabled": "Audio-Input aktivieren (Alices Ohren)",
+          "voice_mode": "Kompakte Prompts für Sprachausgabe verwenden",
+          "continue_conversation": "Nach Sprachantworten auf Rückfragen hören",
+          "follow_up_delay": "Stille Pause vor erneutem Zuhören (Sekunden)",
+          "auto_ducking": "Aktive Mediaplayer während Sprachinteraktionen leiser stellen",
+          "self_echo_filter": "Eigene Antwort auf dem Satelliten ignorieren",
+          "timer_announce": "Timer ansagen statt auf dem Gerät klingeln",
+          "feedback_loop_devices": "Gespräche auf diesen Satelliten immer beenden"
+        },
+        "data_description": {
+          "camera_vision_enabled": "Erlaubt der KI, auf Nachfrage ein aktuelles Snapshot-Bild von Home-Assistant-Kameras auszuwerten (erfordert ein bildfähiges Modell wie Gemma 4).",
+          "audio_input_enabled": "Sendet Sprachaufnahmen direkt als Audio-Anhang an multimodale Modelle (z. B. Gemma 4 über Ollama), sobald Audio-Input verfügbar ist.",
+          "voice_mode": "Kürzere Antworten, optimiert für Sprachausgabe (TTS).",
+          "continue_conversation": "Legt fest, ob das Mikrofon nach einer gesprochenen Antwort wieder geöffnet wird, damit du ohne Aktivierungswort antworten kannst. Immer: nach jeder Antwort. KI entscheiden lassen: nur wenn die Antwort mit einer Frage endet. Nie: nach jeder Antwort beenden. Schlusswörter (\"Stopp\", \"Das war's\") beenden das Gespräch in jedem Modus.",
+          "follow_up_delay": "Für Satelliten, deren Antworten über separate Lautsprecher laufen: Ab einem Wert über 0 übernimmt AI Plugin die Steuerung und wartet nach der Sprachausgabe diese Anzahl Sekunden, bevor das Mikrofon wieder geöffnet wird. 0 überlässt die Steuerung dem Satelliten.",
+          "auto_ducking": "Regelt die Lautstärke laufender Mediaplayer bei Sprachinteraktionen über Satelliten oder die HA-App automatisch herunter und stellt sie bei Leerlauf (idle) wieder her.",
+          "self_echo_filter": "Für Satelliten mit separatem Lautsprecher: Verwirft Spracheingaben, die Teile der gerade gesprochenen Antwort wiederholen, damit keine Endlosschleife entsteht.",
+          "timer_announce": "Sprach-Timer werden bei Ablauf über den Mediaplayer (oder assist_satellite.announce) angesagt, statt auf dem Satelliten zu klingeln.",
+          "feedback_loop_devices": "Satelliten, deren Sprachausgabe über einen separaten Lautsprecher läuft und sich selbst wieder hören. Gespräche auf diesen Geräten enden immer nach einer Runde."
+        }
+      },
+      "system_fallback": {
+        "title": "System, Standort & Fallback",
+        "description": "Offline-Fallback auf Home Assistant Assist, Tool-Limits, Prompt-Caching und Standort-Bezug.",
+        "data": {
+          "offline_fallback": "Offline-Fallback auf Home Assistant Assist",
+          "worker_status_entity": "Backend-Status-Sensor (optional)",
+          "max_tool_iterations": "Limit für Tool-Aufrufe",
+          "prune_tool_schemas": "Tool-Schemas pro Nachricht reduzieren",
+          "location_bias": "Websuche auf deinen Wohnort ausrichten",
+          "location_entity": "Live-Standort-Entität (optional)"
+        },
+        "data_description": {
+          "offline_fallback": "Leitet Anfragen automatisch an den integrierten Home Assistant Assist weiter, wenn der KI-Server schläft oder nicht erreichbar ist.",
+          "worker_status_entity": "Optionaler Sensor, der den Zustand des KI-Backends meldet (z. B. offline oder idle). Meldet er offline, wird ohne Wartezeit direkt umgeschaltet.",
+          "max_tool_iterations": "Maximale Anzahl an Tool-Aufrufen pro Antwort (Standard: 10).",
+          "prune_tool_schemas": "Entfernt unwahrscheinliche Erkennungs-Tools pro Nachricht. Spart einige hundert Tokens, deaktiviert aber Ollamas Prompt-Caching – für geringere Latenz ausgeschaltet lassen.",
+          "location_bias": "Wenn die KI nach lokalem Wetter, Veranstaltungen oder Restaurants fragt, begrenzt das Plugin die Websuche auf deine Umgebung. Ausschalten, um keine Koordinaten zu senden.",
+          "location_entity": "Verwendet die Koordinaten dieser Entität als deinen Live-Standort (Zone, Gerätetracker oder Person). Leer lassen für die Home-Assistant-Heimkoordinaten."
         }
       },
       "web_search": {
