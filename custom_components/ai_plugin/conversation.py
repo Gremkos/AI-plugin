@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import Callable
 import logging
+from pathlib import Path
 import re
+from typing import Any
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
@@ -55,6 +58,69 @@ def _should_auto_duck(user_input: ConversationInput) -> bool:
         getattr(user_input, "satellite_id", None)
         or getattr(user_input, "device_id", None)
     )
+
+
+def _read_attachment_b64(path: Path) -> str | None:
+    """Read a binary attachment file from disk and return its base64 string."""
+    try:
+        raw = path.read_bytes()
+        return base64.b64encode(raw).decode("ascii") if raw else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _extract_turn_attachments(
+    hass: HomeAssistant, user_input: ConversationInput, chat_log: Any
+) -> list[dict[str, Any]]:
+    """Extract image/audio attachments from ChatLog or ConversationInput (HA #1540 ready)."""
+    raw_attachments: list[Any] = []
+
+    input_atts = getattr(user_input, "attachments", None)
+    if input_atts:
+        raw_attachments.extend(input_atts)
+
+    content_list = getattr(chat_log, "content", None)
+    if content_list:
+        for item in reversed(content_list):
+            if getattr(item, "role", None) == "user":
+                item_atts = getattr(item, "attachments", None)
+                if item_atts:
+                    raw_attachments.extend(item_atts)
+                break
+
+    if not raw_attachments:
+        return []
+
+    parsed: list[dict[str, Any]] = []
+    for att in raw_attachments:
+        mime = str(getattr(att, "mime_type", "") or "").lower()
+        if mime.startswith("image/"):
+            att_type = "image"
+        elif mime.startswith("audio/"):
+            att_type = "audio"
+        else:
+            continue
+
+        b64_data: str | None = None
+        path = getattr(att, "path", None)
+        if path is not None:
+            b64_data = await hass.async_add_executor_job(_read_attachment_b64, Path(path))
+        elif getattr(att, "data", None):
+            raw_data = getattr(att, "data")
+            if isinstance(raw_data, bytes):
+                b64_data = base64.b64encode(raw_data).decode("ascii")
+            elif isinstance(raw_data, str):
+                b64_data = raw_data
+
+        if b64_data:
+            parsed.append(
+                {
+                    "type": att_type,
+                    "data": b64_data,
+                    "mime_type": mime,
+                }
+            )
+    return parsed
 
 
 def _resolve_device_area(hass: HomeAssistant, device_id: str | None) -> str | None:
@@ -413,6 +479,10 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         if self._is_offline_fallback_enabled() and self._is_worker_offline():
             return await self._delegate_to_ha_assist(user_input, conversation_id)
 
+        turn_attachments = await _extract_turn_attachments(
+            self.hass, user_input, chat_log
+        )
+
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         consumer: asyncio.Task | None = None
         agent_id = getattr(self, "entity_id", None) or DOMAIN
@@ -446,6 +516,7 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
                 device_id=user_input.device_id,
                 user_id=user_id,
                 on_delta=_on_delta if stream_capable else None,
+                attachments=turn_attachments or None,
             )
         except OrchestratorError as exc:
             if self._is_offline_fallback_enabled() and self._is_connection_error(exc):

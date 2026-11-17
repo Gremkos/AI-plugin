@@ -218,6 +218,51 @@ class OpenAICompatProvider(AbstractProvider):
         await self._chat_ollama(messages, tools, num_predict=1)
         return True
 
+    @staticmethod
+    def _messages_for_openai(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Convert internal multimodal attachments into OpenAI content blocks."""
+        adapted: list[dict[str, Any]] = []
+        for msg in messages:
+            attachments = msg.get("attachments")
+            if not attachments:
+                adapted.append(msg)
+                continue
+            clean_msg = {k: v for k, v in msg.items() if k != "attachments"}
+            parts: list[dict[str, Any]] = []
+            text_content = clean_msg.get("content")
+            if isinstance(text_content, str) and text_content:
+                parts.append({"type": "text", "text": text_content})
+            elif isinstance(text_content, list):
+                parts.extend(text_content)
+
+            for att in attachments:
+                att_type = att.get("type")
+                b64_data = att.get("data")
+                if not b64_data:
+                    continue
+                if att_type == "image":
+                    mime = att.get("mime_type") or "image/jpeg"
+                    parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64_data}"},
+                        }
+                    )
+                elif att_type == "audio":
+                    mime = (att.get("mime_type") or "audio/wav").lower()
+                    fmt = "mp3" if "mp3" in mime or "mpeg" in mime else "wav"
+                    parts.append(
+                        {
+                            "type": "input_audio",
+                            "input_audio": {"data": b64_data, "format": fmt},
+                        }
+                    )
+            clean_msg["content"] = parts if parts else ""
+            adapted.append(clean_msg)
+        return adapted
+
     async def _chat_openai(
         self,
         messages: list[dict[str, Any]],
@@ -228,7 +273,7 @@ class OpenAICompatProvider(AbstractProvider):
         url = f"{self._base_url}/chat/completions"
         payload: dict[str, Any] = {
             "model": self._model,
-            "messages": messages,
+            "messages": self._messages_for_openai(messages),
         }
         if tools:
             payload["tools"] = tools
@@ -279,30 +324,53 @@ class OpenAICompatProvider(AbstractProvider):
     def _messages_for_ollama(
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Adapt OpenAI-shape history to Ollama's native /api/chat shape.
+        """Adapt OpenAI-shape history and multimodal attachments to Ollama /api/chat.
 
-        OpenAI stores `function.arguments` as a JSON-encoded string; Ollama
-        native expects it as an object and returns HTTP 400 ("Value looks
-        like object, but can't find closing '}' symbol") on a string.
+        • Converts JSON-encoded `function.arguments` strings into dicts.
+        • Extracts `attachments` (image/audio) into Ollama's native `images`
+          and `audio` base64 arrays.
         """
         adapted: list[dict[str, Any]] = []
         for msg in messages:
             tcs = msg.get("tool_calls")
-            if not tcs:
+            attachments = msg.get("attachments")
+            if not tcs and not attachments:
                 adapted.append(msg)
                 continue
-            new_tcs = []
-            for tc in tcs:
-                fn = tc.get("function", {})
-                args = fn.get("arguments")
-                if isinstance(args, str):
-                    try:
-                        parsed = json.loads(args) if args else {}
-                    except json.JSONDecodeError:
-                        parsed = {}
-                    fn = {**fn, "arguments": parsed}
-                new_tcs.append({**tc, "function": fn})
-            adapted.append({**msg, "tool_calls": new_tcs})
+
+            new_msg = {k: v for k, v in msg.items() if k != "attachments"}
+
+            if tcs:
+                new_tcs = []
+                for tc in tcs:
+                    fn = tc.get("function", {})
+                    args = fn.get("arguments")
+                    if isinstance(args, str):
+                        try:
+                            parsed = json.loads(args) if args else {}
+                        except json.JSONDecodeError:
+                            parsed = {}
+                        fn = {**fn, "arguments": parsed}
+                    new_tcs.append({**tc, "function": fn})
+                new_msg["tool_calls"] = new_tcs
+
+            if attachments:
+                images: list[str] = list(new_msg.get("images") or [])
+                audios: list[str] = list(new_msg.get("audio") or [])
+                for att in attachments:
+                    b64_data = att.get("data")
+                    if not b64_data:
+                        continue
+                    if att.get("type") == "image":
+                        images.append(b64_data)
+                    elif att.get("type") == "audio":
+                        audios.append(b64_data)
+                if images:
+                    new_msg["images"] = images
+                if audios:
+                    new_msg["audio"] = audios
+
+            adapted.append(new_msg)
         return adapted
 
     async def async_chat_stream(
@@ -348,13 +416,6 @@ class OpenAICompatProvider(AbstractProvider):
             "model": self._model,
             "messages": self._messages_for_ollama(messages),
             "stream": on_delta is not None,
-            # Toggle qwen3-style chain-of-thought via the integration option.
-            # Reasoning models (qwen3, deepseek-r1) emit CoT into a separate
-            # `thinking` field and may also wrap it in <think>...</think>
-            # blocks inside `content`. We always strip the latter via
-            # _strip_think regardless of this flag — "in any configuration the
-            # thinking blocks should always be hidden". Ollama answers true
-            # with HTTP 400 for a model that cannot reason, handled below.
             "think": self._enable_thinking,
         }
         if tools:
@@ -362,8 +423,6 @@ class OpenAICompatProvider(AbstractProvider):
         if options:
             payload["options"] = options
         if self._keep_alive:
-            # Ollama accepts duration strings ("30m", "24h") or numbers
-            # (seconds; -1 = keep loaded forever, 0 = unload immediately).
             ka = self._keep_alive
             payload["keep_alive"] = (
                 int(ka) if ka.lstrip("-").isdigit() else ka
@@ -383,8 +442,6 @@ class OpenAICompatProvider(AbstractProvider):
                 if resp.status == 400:
                     detail = await resp.text()
                     if self._enable_thinking and _NO_THINKING in detail:
-                        # One checkbox must not break every turn: 2026-11-03,
-                        # each voice turn spoke the HTTP error instead.
                         _LOGGER.warning(
                             "AI Plugin: model %s cannot reason, so 'Enable model "
                             "reasoning' has no effect on it. Turn the option off "
@@ -427,15 +484,7 @@ class OpenAICompatProvider(AbstractProvider):
         return await self._chat_ollama(messages, tools, on_delta, num_predict)
 
     async def _read_ollama_stream(self, resp: Any, on_delta: Any) -> ChatResponse:
-        """Consume an Ollama NDJSON stream, forwarding content chunks.
-
-        Each line is a JSON object with a partial ``message``; content
-        arrives in fragments, tool_calls usually as one discrete chunk.
-        on_delta receives raw content fragments — sanitation and
-        hold-back policy are the caller's job. Forwarding stops the
-        moment a tool call appears (that response is not user-facing
-        prose). The returned ChatResponse carries the full accumulation.
-        """
+        """Consume an Ollama NDJSON stream, forwarding content chunks."""
         content_parts: list[str] = []
         raw_tool_calls: list[dict[str, Any]] = []
         async for raw_line in resp.content:
@@ -532,11 +581,7 @@ async def async_show_model(
     model: str,
     api_key: str | None = None,
 ) -> dict[str, Any] | None:
-    """Ollama-only model introspection via POST /api/show.
-
-    Returns the raw show payload, or None for non-Ollama backends and any
-    failure — callers must treat None as "unknown", never as "bad model".
-    """
+    """Ollama-only model introspection via POST /api/show."""
     root = _strip_v1(base_url.rstrip("/"))
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -569,9 +614,8 @@ def model_limit_errors(
     capabilities: list[str] | None,
     context_limit: int | None,
 ) -> dict[str, str]:
-    """Form errors for what the model itself rules out. Unknown limits pass:
-    only Ollama reports them, and "unknown" must never read as "not supported"."""
-    from ..const import (  # noqa: PLC0415 — avoid import cycle at module load
+    """Form errors for what the model itself rules out."""
+    from ..const import (  # noqa: PLC0415
         CONF_CONTEXT_WINDOW,
         CONF_ENABLE_THINKING,
         ERROR_CONTEXT_EXCEEDS_MODEL,

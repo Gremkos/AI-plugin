@@ -9,7 +9,7 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -20,6 +20,8 @@ from homeassistant.helpers import (
 )
 
 from ..const import (
+    CONF_AUDIO_INPUT_ENABLED,
+    CONF_CAMERA_VISION_ENABLED,
     CONF_CONTEXT_WINDOW,
     CONF_DIARY_DAYS,
     CONF_DIARY_ENABLED,
@@ -35,6 +37,8 @@ from ..const import (
     CONF_TOOL_MESSAGES,
     CONF_VOICE_MODE,
     CONF_WEB_SEARCH_ENABLED,
+    DEFAULT_AUDIO_INPUT_ENABLED,
+    DEFAULT_CAMERA_VISION_ENABLED,
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_DIARY_DAYS,
     DEFAULT_DIARY_ENABLED,
@@ -110,6 +114,11 @@ from ..tools.memory import (
     WRITE_TOOL_NAMES as MEMORY_WRITE_TOOLS,
     MemoryTool,
 )
+from ..tools.vision import (
+    VISION_TOOL_NAME,
+    VISION_TOOL_SCHEMA,
+    async_capture_camera_snapshot,
+)
 from ..tools.web_search import TOOL_SCHEMA as WEB_SEARCH_SCHEMA, WebSearchTool
 from ..tools.browse_url import TOOL_SCHEMA as BROWSE_URL_SCHEMA, BrowseUrlTool
 from ..voice_id import VOICE_ENROLL_SCHEMA, VOICE_ENROLL_TOOL
@@ -164,6 +173,13 @@ REPEATED_LOOKUP_RESULT = (
     "You already ran this exact {name} call in this turn; its result is above "
     "and running it again returns the same thing. Do not repeat it. Answer the "
     "user now with what you found, and say plainly what you could not find."
+)
+
+_CAMERA_VISION_RULE = (
+    "\n\n[CAMERA VISION]\n"
+    "- You can see through Home Assistant cameras by calling look_at_camera(camera?, question?).\n"
+    "- Whenever the user asks you to look, check visually, see what is in a room/kitchen/door, "
+    "or inspect something on a camera, CALL look_at_camera first and answer directly from the snapshot."
 )
 
 
@@ -368,6 +384,7 @@ class Orchestrator(
         self._browse_url: BrowseUrlTool | None = (
             BrowseUrlTool() if opts.get(CONF_WEB_SEARCH_ENABLED, False) else None
         )
+        self._pending_vision_attachments: list[dict[str, Any]] = []
 
         self._location: LocationProvider = LocationProvider(hass, entry)
         self._conv_locks: dict[str, asyncio.Lock] = {}
@@ -393,6 +410,43 @@ class Orchestrator(
                 )
             )
             hass.async_create_task(self._diary.async_ensure_model())
+
+    def _camera_vision_enabled(self) -> bool:
+        """True when camera snapshot vision ('Alice's eyes') is enabled."""
+        entry = getattr(self, "_entry", None)
+        if entry is None:
+            return False
+        return bool(
+            entry.options.get(
+                CONF_CAMERA_VISION_ENABLED, DEFAULT_CAMERA_VISION_ENABLED
+            )
+        )
+
+    def _audio_input_enabled(self) -> bool:
+        """True when multimodal audio input ('Alice's ears') is enabled."""
+        entry = getattr(self, "_entry", None)
+        if entry is None:
+            return False
+        return bool(
+            entry.options.get(CONF_AUDIO_INPUT_ENABLED, DEFAULT_AUDIO_INPUT_ENABLED)
+        )
+
+    def _filter_turn_attachments(
+        self, attachments: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        """Keep only attachment types enabled in options."""
+        if not attachments:
+            return []
+        allow_img = self._camera_vision_enabled()
+        allow_aud = self._audio_input_enabled()
+        filtered: list[dict[str, Any]] = []
+        for att in attachments:
+            att_type = att.get("type")
+            if att_type == "image" and allow_img:
+                filtered.append(att)
+            elif att_type == "audio" and allow_aud:
+                filtered.append(att)
+        return filtered
 
     def _get_conv_lock(self, conv_id: str) -> asyncio.Lock:
         if not hasattr(self, "_conv_locks"):
@@ -429,6 +483,8 @@ class Orchestrator(
                 for s in tool_schemas
                 if s.get("function", {}).get("name") not in TOOLS_THE_PLUGIN_COVERS
             ]
+        if self._camera_vision_enabled() and self._hass is not None:
+            tool_schemas = [VISION_TOOL_SCHEMA, *tool_schemas]
         if self._web_search is not None:
             tool_schemas = [WEB_SEARCH_SCHEMA, *tool_schemas]
         if self._browse_url is not None:
@@ -477,6 +533,22 @@ class Orchestrator(
             ]
         return tool_schemas
 
+    @staticmethod
+    def _attach_to_last_user_message(
+        messages: list[dict[str, Any]],
+        attachments: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Return a shallow copy of messages with attachments on the last user turn."""
+        if not attachments:
+            return messages
+        copied = list(messages)
+        for idx in range(len(copied) - 1, -1, -1):
+            if copied[idx].get("role") == "user":
+                existing = list(copied[idx].get("attachments") or [])
+                copied[idx] = {**copied[idx], "attachments": [*existing, *attachments]}
+                break
+        return copied
+
     async def async_process(
         self,
         message: str,
@@ -485,12 +557,14 @@ class Orchestrator(
         device_id: str | None = None,
         user_id: str | None = None,
         on_delta=None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> str:
         """Process a user message and return the assistant's reply."""
         voice_mode: bool = self._is_voice_device(device_id) or bool(
             self._entry.options.get(CONF_VOICE_MODE, False)
         )
         lang = (language or "en").split("-")[0].lower()
+        turn_attachments = self._filter_turn_attachments(attachments)
 
         from ..const import TIMER_DONE_SENTINEL  # noqa: PLC0415
 
@@ -511,8 +585,6 @@ class Orchestrator(
                 return alarm_reply
             jobs_before = {job.id for job in self._scheduler.jobs()}
 
-        # Stream sentences immediately for normal queries; hold back only on
-        # action commands so silent actuator suppression works cleanly.
         stream_safe = (
             on_delta is not None
             and not self._reasoning_active()
@@ -524,6 +596,8 @@ class Orchestrator(
             voice_mode=voice_mode,
         )
         system_prompt = await self._build_system_prompt(voice_mode)
+        if self._camera_vision_enabled():
+            system_prompt += _CAMERA_VISION_RULE
 
         for stale_id in self._context_mgr.evict_idle():
             self._conv_locks.pop(stale_id, None)
@@ -753,12 +827,14 @@ class Orchestrator(
             messages = await self._context_mgr.get_messages(
                 conversation_id, system_prompt, tool_tokens=schema_tokens
             )
+            llm_messages = self._attach_to_last_user_message(messages, turn_attachments)
 
-            # Single-pass LLM execution (no secondary grounding retry loops)
+            # Single-pass LLM execution
+            self._pending_vision_attachments = []
             try:
                 if tool_schemas:
                     reply, tool_msgs = await self._tool_loop(
-                        messages,
+                        llm_messages,
                         tool_schemas,
                         user_id,
                         voice_mode,
@@ -769,16 +845,18 @@ class Orchestrator(
                     )
                 elif gate.active:
                     response = await self._provider.async_chat_stream(
-                        messages, on_delta=gate.feed
+                        llm_messages, on_delta=gate.feed
                     )
                     reply = response.reply_text()
                     tool_msgs = []
                 else:
-                    reply = await self._provider.async_complete(messages)
+                    reply = await self._provider.async_complete(llm_messages)
                     tool_msgs = []
             except Exception:
                 await self._context_mgr.remove_last_turn(conversation_id)
                 raise
+            finally:
+                self._pending_vision_attachments = []
 
             for msg in tool_msgs:
                 await self._context_mgr.add_raw_message(conversation_id, msg)
@@ -808,7 +886,6 @@ class Orchestrator(
             actuator_acted = _any_actuator_success(tool_msgs)
             history_reply = stored_reply
 
-            # Keep silent TTS confirmation when actuators or media succeeded
             if (
                 actuator_acted
                 and voice_mode
@@ -1058,6 +1135,12 @@ class Orchestrator(
                     }
                     messages.append(tool_msg)
                     history_messages.append(tool_msg)
+                    if self._pending_vision_attachments:
+                        vision_atts = list(self._pending_vision_attachments)
+                        self._pending_vision_attachments.clear()
+                        messages = self._attach_to_last_user_message(
+                            messages, vision_atts
+                        )
                     continue
                 return reply_text, history_messages
 
@@ -1116,6 +1199,13 @@ class Orchestrator(
                 msg = tc.to_tool_result_message(result)
                 messages.append(msg)
                 history_messages.append(msg)
+
+            if self._pending_vision_attachments:
+                vision_atts = list(self._pending_vision_attachments)
+                self._pending_vision_attachments.clear()
+                messages = self._attach_to_last_user_message(
+                    messages, vision_atts
+                )
 
             enroll_reply = (
                 (self._enroll_replies or {}).pop(device_id, None) if device_id else None
@@ -1328,11 +1418,22 @@ class Orchestrator(
         language: str | None = None,
         available_tools: set[str] | None = None,
     ) -> str:
-        """Route a tool call to ha_local, memory, web search, or MCP."""
+        """Route a tool call to ha_local, vision, memory, web search, or MCP."""
         if self._hass is not None:
             self._hass.data.setdefault(DOMAIN, {}).setdefault(
                 "_status_meta", {"area": None, "emotion": None, "last_tool": None}
             )["last_tool"] = name
+        if (
+            name == VISION_TOOL_NAME
+            and self._camera_vision_enabled()
+            and self._hass is not None
+        ):
+            result_text, attachment = await async_capture_camera_snapshot(
+                self._hass, arguments, device_id=device_id
+            )
+            if attachment is not None:
+                self._pending_vision_attachments.append(attachment)
+            return result_text
         arguments, refused = self._confine_to_this_room(
             name, arguments, user_message, device_id
         )
