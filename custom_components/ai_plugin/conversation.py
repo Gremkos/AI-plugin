@@ -49,6 +49,14 @@ _PLAYER_DONE_STATES = frozenset({"idle", "paused", "off", "standby"})
 _UNSET = object()
 
 
+def _should_auto_duck(user_input: ConversationInput) -> bool:
+    """Duck on HA App devices (tablet/phone) and satellites, skip PC browser chats."""
+    return bool(
+        getattr(user_input, "satellite_id", None)
+        or getattr(user_input, "device_id", None)
+    )
+
+
 def _resolve_device_area(hass: HomeAssistant, device_id: str | None) -> str | None:
     """Resolve Home Assistant area name for a device_id."""
     if not device_id:
@@ -160,6 +168,7 @@ def async_set_assist_status(
     auto_idle_delay: float | None = None,
     watch_media_player: str | None = None,
     expects_follow_up: bool = False,
+    allow_ducking: bool = True,
 ) -> None:
     """Update sensor.ai_plugin_assist_status immediately in Home Assistant."""
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -173,10 +182,12 @@ def async_set_assist_status(
 
     if status == "idle":
         async_update_assist_meta(hass, area=None, emotion=None)
-    elif status == "listening":
-        async_update_assist_meta(hass, emotion=None)
-
-    _apply_media_ducking(hass, duck=(status != "idle"))
+        _apply_media_ducking(hass, duck=False)
+    else:
+        if status == "listening":
+            async_update_assist_meta(hass, emotion=None)
+        if allow_ducking:
+            _apply_media_ducking(hass, duck=True)
 
     meta = domain_data.setdefault(
         "_status_meta",
@@ -215,7 +226,8 @@ def async_set_assist_status(
                 if unsub is not None:
                     unsub()
                 settle = 4.0 if expects_follow_up else 0.4
-                async_set_assist_status(hass, "idle", auto_idle_delay=None) if settle <= 0 else None
+                if settle <= 0:
+                    async_set_assist_status(hass, "idle", auto_idle_delay=None)
                 t_old: asyncio.TimerHandle | None = domain_data.pop("_status_timer", None)
                 if t_old is not None:
                     t_old.cancel()
@@ -257,10 +269,12 @@ async def async_setup_entry(
             if new_status not in _STATUS_ICONS:
                 new_status = "idle"
             delay = call.data.get("auto_idle_delay")
+            allow_ducking = bool(call.data.get("duck", True))
             async_set_assist_status(
                 hass,
                 new_status,
                 auto_idle_delay=float(delay) if delay is not None else None,
+                allow_ducking=allow_ducking,
             )
 
         hass.services.async_register(
@@ -368,6 +382,7 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             ),
             watch_media_player=player_entity,
             expects_follow_up=result.continue_conversation,
+            allow_ducking=_should_auto_duck(user_input),
         )
         return result
 
@@ -375,9 +390,10 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         self, user_input: ConversationInput, chat_log
     ) -> ConversationResult:
         """Process a user message from HA Assist and return a reply."""
+        can_duck = _should_auto_duck(user_input)
         area_name = _resolve_device_area(self.hass, user_input.device_id)
         async_update_assist_meta(self.hass, area=area_name, emotion=None)
-        async_set_assist_status(self.hass, "processing")
+        async_set_assist_status(self.hass, "processing", allow_ducking=can_duck)
 
         user_id: str | None = (
             getattr(user_input.context, "user_id", None) if user_input.context else None
@@ -464,6 +480,7 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             auto_idle_delay=_estimate_speech_seconds(reply, continue_conversation),
             watch_media_player=player_entity,
             expects_follow_up=continue_conversation,
+            allow_ducking=can_duck,
         )
 
         return ConversationResult(
