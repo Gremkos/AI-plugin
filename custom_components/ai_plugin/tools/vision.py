@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import io
 import logging
 from typing import Any
 
@@ -19,6 +21,8 @@ from ..shortcuts.registry import _caller_area_id
 _LOGGER = logging.getLogger(__name__)
 
 VISION_TOOL_NAME = "look_at_camera"
+_MAX_IMAGE_EDGE = 1280
+_BLACK_FRAME_LUMA_THRESHOLD = 3.0
 
 VISION_TOOL_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -79,6 +83,28 @@ def _expand_queries(query: str) -> list[str]:
         if key in q_low:
             candidates.extend(aliases)
     return list(dict.fromkeys(candidates))
+
+
+def _prepare_jpeg_and_luma(raw_bytes: bytes) -> tuple[bytes, float | None]:
+    """Normalize image to RGB JPEG (max 1280px edge) and measure mean brightness."""
+    try:
+        from PIL import Image, ImageStat  # noqa: PLC0415
+
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            rgb = img.convert("RGB")
+            luma = float(ImageStat.Stat(rgb.convert("L")).mean[0])
+            w, h = rgb.size
+            if max(w, h) > _MAX_IMAGE_EDGE:
+                scale = _MAX_IMAGE_EDGE / float(max(w, h))
+                rgb = rgb.resize(
+                    (max(1, int(w * scale)), max(1, int(h * scale))),
+                    Image.Resampling.LANCZOS,
+                )
+            buf = io.BytesIO()
+            rgb.save(buf, format="JPEG", quality=85)
+            return buf.getvalue(), luma
+    except Exception:  # noqa: BLE001
+        return raw_bytes, None
 
 
 def _collect_cameras(hass: HomeAssistant) -> list[dict[str, str]]:
@@ -175,27 +201,57 @@ async def async_capture_camera_snapshot(
 
     entity_id = target["entity_id"]
     label = f"{target['name']} ({target['area']})" if target["area"] else target["name"]
-    try:
-        image = await async_get_image(hass, entity_id, timeout=10)
-    except Exception as exc:  # noqa: BLE001
-        _LOGGER.warning("AI Plugin: failed to capture snapshot from %s: %s", entity_id, exc)
+
+    jpeg_bytes: bytes | None = None
+    luma: float | None = None
+    for attempt in range(2):
+        try:
+            image = await async_get_image(hass, entity_id, timeout=10)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("AI Plugin: failed to capture snapshot from %s: %s", entity_id, exc)
+            return (
+                f"[Could not capture image from {label}: {exc}. Tell the user the camera did not respond.]",
+                None,
+            )
+
+        if not image or not image.content:
+            return (
+                f"[Camera {label} returned an empty image. Tell the user.]",
+                None,
+            )
+
+        jpeg_bytes, luma = await hass.async_add_executor_job(
+            _prepare_jpeg_and_luma, image.content
+        )
+        if luma is None or luma >= _BLACK_FRAME_LUMA_THRESHOLD or attempt == 1:
+            break
+        _LOGGER.info(
+            "AI Plugin vision: %s returned a black frame (luma=%.1f), retrying...",
+            entity_id,
+            luma,
+        )
+        await asyncio.sleep(0.7)
+
+    assert jpeg_bytes is not None
+    _LOGGER.info(
+        "AI Plugin vision: %s snapshot ready (%d bytes, luma=%s)",
+        entity_id,
+        len(jpeg_bytes),
+        f"{luma:.1f}" if luma is not None else "n/a",
+    )
+
+    if luma is not None and luma < _BLACK_FRAME_LUMA_THRESHOLD:
         return (
-            f"[Could not capture image from {label}: {exc}. Tell the user the camera did not respond.]",
+            f"[Camera {label} returned a completely black image even after retry. "
+            "Tell the user the camera image is currently black (stream asleep, dark room, or privacy cover).]",
             None,
         )
 
-    if not image or not image.content:
-        return (
-            f"[Camera {label} returned an empty image. Tell the user.]",
-            None,
-        )
-
-    b64_data = base64.b64encode(image.content).decode("ascii")
-    mime_type = getattr(image, "content_type", None) or "image/jpeg"
+    b64_data = base64.b64encode(jpeg_bytes).decode("ascii")
     attachment = {
         "type": "image",
         "data": b64_data,
-        "mime_type": mime_type,
+        "mime_type": "image/jpeg",
         "source": label,
     }
     return (
