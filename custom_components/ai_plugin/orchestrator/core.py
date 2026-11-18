@@ -730,7 +730,7 @@ class Orchestrator(
                 if (
                     not owner
                     and self._voice_id is not None
-                    and voice_mode
+                    and self._voice_id.enabled
                     and self._voice_id.should_identify(message, device_id, user_id)
                 ):
                     speaker_task = asyncio.get_running_loop().create_task(
@@ -753,7 +753,7 @@ class Orchestrator(
             if (
                 speaker_task is None
                 and self._voice_id is not None
-                and voice_mode
+                and self._voice_id.enabled
                 and self._voice_id.should_identify(message, device_id, user_id)
             ):
                 speaker_task = asyncio.get_running_loop().create_task(
@@ -772,6 +772,10 @@ class Orchestrator(
                     _LOGGER.debug("AI Plugin: voice ID failed", exc_info=True)
                 if speaker is not None:
                     user_id = speaker.memory_key
+                else:
+                    # Voice-ID checked the audio and found no known person:
+                    # do not fall back to the tablet's signed-in HA account.
+                    user_id = None
             if self._turn_speakers is None:
                 self._turn_speakers = {}
             if device_id:
@@ -1796,13 +1800,15 @@ class Orchestrator(
         speaker_task: asyncio.Task | None,
         lang: str,
     ) -> str | None:
-        speaker = person_for_user(self._hass, user_id)
-        if speaker is None and speaker_task is not None:
+        speaker: str | None = None
+        if speaker_task is not None:
             try:
                 identity = await speaker_task
             except Exception:  # noqa: BLE001
                 identity = None
             speaker = identity.person_id if identity is not None else None
+        else:
+            speaker = person_for_user(self._hass, user_id)
         person_id = resolve_owner(
             self._hass, owner, speaker_person=speaker, find_person=self._find_person
         )
