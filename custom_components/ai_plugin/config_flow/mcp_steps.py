@@ -16,7 +16,13 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 
-from ..const import CONF_MCP_SERVERS, ERROR_INVALID_URL
+from ..const import (
+    CONF_ADMIN_MCP_ENABLED,
+    CONF_ADMIN_PERSON,
+    CONF_MCP_SERVERS,
+    DEFAULT_ADMIN_MCP_ENABLED,
+    ERROR_INVALID_URL,
+)
 from .schemas import _is_valid_url
 
 _LOGGER = logging.getLogger(__name__)
@@ -109,9 +115,18 @@ class MCPServerStepsMixin:
     async def async_step_mcp_servers(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        """MCP server management — action selector with live server list."""
+        """MCP server management & Admin-MCP access control."""
         if user_input is not None:
-            action = user_input["mcp_action"]
+            self._options[CONF_ADMIN_MCP_ENABLED] = bool(
+                user_input.get(CONF_ADMIN_MCP_ENABLED, DEFAULT_ADMIN_MCP_ENABLED)
+            )
+            admin_person = user_input.get(CONF_ADMIN_PERSON)
+            if admin_person:
+                self._options[CONF_ADMIN_PERSON] = str(admin_person).strip()
+            else:
+                self._options.pop(CONF_ADMIN_PERSON, None)
+
+            action = user_input.get("mcp_action", "save")
             if action == "add_preset":
                 return await self.async_step_mcp_add_preset()
             if action == "add_http":
@@ -127,6 +142,7 @@ class MCPServerStepsMixin:
             return self.async_create_entry(title="", data=self._options)
 
         action_options: list[dict[str, str]] = [
+            {"value": "save", "label": "Save and close"},
             {"value": "add_preset", "label": "Add a popular MCP server"},
             {"value": "add_http", "label": "Add other HTTP server"},
             {"value": "add_stdio", "label": "Add custom stdio server"},
@@ -134,13 +150,26 @@ class MCPServerStepsMixin:
         if self._pending_mcp:
             action_options.append({"value": "edit", "label": "Edit a server"})
             action_options.append({"value": "remove", "label": "Remove a server"})
-        action_options.append({"value": "save", "label": "Save and close"})
 
         return self.async_show_form(
             step_id="mcp_servers",
             data_schema=vol.Schema(
                 {
-                    vol.Required("mcp_action"): selector.SelectSelector(
+                    vol.Optional(
+                        CONF_ADMIN_MCP_ENABLED,
+                        default=self._options.get(
+                            CONF_ADMIN_MCP_ENABLED, DEFAULT_ADMIN_MCP_ENABLED
+                        ),
+                    ): selector.BooleanSelector(),
+                    vol.Optional(
+                        CONF_ADMIN_PERSON,
+                        description={
+                            "suggested_value": self._options.get(CONF_ADMIN_PERSON)
+                        },
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="person")
+                    ),
+                    vol.Required("mcp_action", default="save"): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=action_options,
                             mode=selector.SelectSelectorMode.LIST,

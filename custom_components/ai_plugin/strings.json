@@ -305,13 +305,17 @@
         }
       },
       "mcp_servers": {
-        "title": "MCP Servers",
-        "description": "Connect AI Plugin to more tools via the Model Context Protocol (MCP), for example time, web pages or a memory of your own. Home Assistant's own tools (devices, sensors, exposed scripts, to-do lists) are built in and need no server here.\n\nConfigured servers:\n{servers}",
+        "title": "MCP Servers & Admin Protection",
+        "description": "Connect AI Plugin to external tools via the Model Context Protocol (MCP) and optionally restrict full device and tool control to a single admin person.\n\nConfigured servers:\n{servers}",
         "data": {
+          "admin_mcp_enabled": "Enable Admin Mode (MCP-Admin)",
+          "admin_person": "Admin person (full access)",
           "mcp_action": "What would you like to do?"
         },
         "data_description": {
-          "mcp_action": "Changes are only saved when you choose Save and close."
+          "admin_mcp_enabled": "When enabled, only the selected admin person may control all devices, smart plugs, scripts, media, and MCP tools. All other voices may only control lights and ask about the weather.",
+          "admin_person": "Select the Home Assistant person granted full access (requires Voice ID for voice commands).",
+          "mcp_action": "Choose 'Save and close' to save settings immediately, or add an MCP server."
         }
       },
       "mcp_add_preset": {

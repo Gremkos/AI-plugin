@@ -307,13 +307,17 @@
         }
       },
       "mcp_servers": {
-        "title": "MCP-Server",
-        "description": "Verbinde AI Plugin über das Model Context Protocol (MCP) mit weiteren Tools, z. B. für Uhrzeit, Webseiten oder ein eigenes Gedächtnis. Home Assistants eigene Tools (Geräte, Sensoren, freigegebene Skripte, Aufgabenlisten) sind bereits integriert und benötigen hier keinen Server.\n\nKonfigurierte Server:\n{servers}",
+        "title": "MCP-Server & Admin-Schutz",
+        "description": "Verbinde AI Plugin über das Model Context Protocol (MCP) mit weiteren Tools (z. B. auf deinem Windows-PC) und lege fest, ob nur eine Admin-Person vollen Zugriff auf alle Geräte und Tools hat.\n\nKonfigurierte Server:\n{servers}",
         "data": {
+          "admin_mcp_enabled": "Admin-Modus (MCP-Admin) aktivieren",
+          "admin_person": "Admin-Person (Vollzugriff)",
           "mcp_action": "Was möchtest du tun?"
         },
         "data_description": {
-          "mcp_action": "Änderungen werden erst gespeichert, wenn du Speichern und schließen wählst."
+          "admin_mcp_enabled": "Wenn aktiviert, darf nur die ausgewählte Admin-Person alle Geräte, Steckdosen, Skripte, Medien und MCP-Tools steuern. Alle anderen Stimmen dürfen ausschließlich Licht schalten und nach dem Wetter fragen.",
+          "admin_person": "Wähle deine Home-Assistant-Person aus, der alleiniger Vollzugriff gewährt wird (erfordert aktivierte Stimmerkennung für Sprachbefehle).",
+          "mcp_action": "Wähle 'Save and close', um die Einstellungen direkt zu speichern, oder füge einen MCP-Server hinzu."
         }
       },
       "mcp_add_preset": {

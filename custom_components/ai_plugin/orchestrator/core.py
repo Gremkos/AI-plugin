@@ -20,6 +20,8 @@ from homeassistant.helpers import (
 )
 
 from ..const import (
+    CONF_ADMIN_MCP_ENABLED,
+    CONF_ADMIN_PERSON,
     CONF_AUDIO_INPUT_ENABLED,
     CONF_CAMERA_VISION_ENABLED,
     CONF_CONTEXT_WINDOW,
@@ -37,6 +39,7 @@ from ..const import (
     CONF_TOOL_MESSAGES,
     CONF_VOICE_MODE,
     CONF_WEB_SEARCH_ENABLED,
+    DEFAULT_ADMIN_MCP_ENABLED,
     DEFAULT_AUDIO_INPUT_ENABLED,
     DEFAULT_CAMERA_VISION_ENABLED,
     DEFAULT_CONTEXT_WINDOW,
@@ -161,6 +164,19 @@ _LOGGER = logging.getLogger(__name__)
 
 TOOL_WAIT_LINE_DELAY_S = 2.0
 ACTION_FIRST_REPLY_MAX_TOKENS = 128
+
+_NON_ADMIN_ALLOWED_TOOLS = frozenset({
+    "set_brightness",
+    "set_area_state",
+    "list_entities",
+    "get_entity_state",
+    "web_search",
+    "GetDateTime",
+    "HassLightSet",
+    "HassTurnOn",
+    "HassTurnOff",
+    "HassToggle",
+})
 
 ROOM_COLOUR_REPLACED_RESULT = (
     "[Not changed: another colour for the whole room would only replace the one "
@@ -411,6 +427,64 @@ class Orchestrator(
             )
             hass.async_create_task(self._diary.async_ensure_model())
 
+    def _admin_restriction_target(self) -> tuple[str | None, str | None]:
+        """Return (admin_person_id, admin_friendly_name) when Admin-MCP mode is active."""
+        entry = getattr(self, "_entry", None)
+        if entry is None:
+            return None, None
+        if not bool(entry.options.get(CONF_ADMIN_MCP_ENABLED, DEFAULT_ADMIN_MCP_ENABLED)):
+            return None, None
+        admin_person = str(entry.options.get(CONF_ADMIN_PERSON) or "").strip()
+        if not admin_person:
+            return None, None
+        hass = getattr(self, "_hass", None)
+        state = hass.states.get(admin_person) if hass is not None else None
+        friendly = (
+            str(state.attributes.get("friendly_name") or "").strip()
+            if state is not None
+            else ""
+        )
+        fallback = admin_person.split(".", 1)[-1].capitalize()
+        return admin_person, friendly or fallback
+
+    def _is_non_admin_tool_allowed(self, name: str, arguments: dict) -> bool:
+        """True only for light control and weather queries when Admin-MCP restricts a speaker."""
+        if name not in _NON_ADMIN_ALLOWED_TOOLS:
+            return False
+        if name == "set_area_state":
+            return str(arguments.get("domain") or "").strip().lower() == "light"
+        if name in ("HassTurnOn", "HassTurnOff", "HassToggle"):
+            eid = str(arguments.get("entity_id") or "").strip().lower()
+            if eid:
+                return eid.startswith("light.")
+            dom = arguments.get("domain")
+            if isinstance(dom, list):
+                return bool(dom) and all(
+                    str(d).strip().lower() == "light" for d in dom
+                )
+            if dom:
+                return str(dom).strip().lower() == "light"
+            target_name = str(arguments.get("name") or "").strip().lower()
+            if target_name and self._hass is not None:
+                matched = [
+                    st.entity_id
+                    for st in self._hass.states.async_all()
+                    if target_name == st.entity_id.lower()
+                    or target_name
+                    in str(st.attributes.get("friendly_name") or "").lower()
+                ]
+                return bool(matched) and all(
+                    m.startswith("light.") for m in matched
+                )
+            return False
+        if name == "list_entities":
+            dom = str(arguments.get("domain") or "").strip().lower()
+            return dom in ("light", "weather")
+        if name == "get_entity_state":
+            eid = str(arguments.get("entity_id") or "").strip().lower()
+            return eid.startswith(("light.", "weather."))
+        return True
+
     def _camera_vision_enabled(self) -> bool:
         """True when camera snapshot vision ('Alice's eyes') is enabled."""
         entry = getattr(self, "_entry", None)
@@ -473,9 +547,32 @@ class Orchestrator(
         return OpenAICompatProvider.from_options(dict(self._entry.options))
 
     def _tool_schemas_for(
-        self, message: str, voice_mode: bool, device_id: str | None
+        self,
+        message: str,
+        voice_mode: bool,
+        device_id: str | None,
+        is_admin: bool = True,
     ) -> list[dict]:
         """The tool schemas sent with a turn, in the order they are sent."""
+        if not is_admin:
+            restricted_schemas: list[dict] = []
+            if self._ha_local is not None:
+                restricted_schemas.extend(
+                    s
+                    for s in self._ha_local.get_schemas()
+                    if s.get("function", {}).get("name") in _NON_ADMIN_ALLOWED_TOOLS
+                )
+            if self._web_search is not None:
+                restricted_schemas.append(WEB_SEARCH_SCHEMA)
+            off = self._tools_off()
+            if off:
+                restricted_schemas = [
+                    s
+                    for s in restricted_schemas
+                    if s.get("function", {}).get("name") not in off
+                ]
+            return restricted_schemas
+
         tool_schemas = self._mcp.get_tool_schemas() if self._mcp else []
         if self._ha_local is not None:
             tool_schemas = [
@@ -618,25 +715,7 @@ class Orchestrator(
             )
             await self._context_mgr.add_turn(conversation_id, "user", message)
 
-            broadcast_reply = await self._broadcast_turn(
-                message, conversation_id, device_id, lang
-            )
-            if broadcast_reply is not None:
-                await self._context_mgr.add_turn(
-                    conversation_id, "assistant", broadcast_reply
-                )
-                return broadcast_reply
-
-            message_reply = await self._message_answer_turn(
-                message, conversation_id, device_id, user_id, lang
-            )
-            if message_reply is not None:
-                await self._context_mgr.add_turn(
-                    conversation_id, "assistant", message_reply
-                )
-                return message_reply
-
-            # Deterministic pre-LLM shortcuts
+            # Deterministic math/time/date shortcuts (safe for all speakers)
             try:
                 shortcut_reply = try_shortcut(self._hass, message, lang=lang)
             except Exception:  # noqa: BLE001
@@ -648,121 +727,16 @@ class Orchestrator(
                 )
                 return shortcut_reply
 
-            later = names_later_time(message, lang)
-
-            if asks_for_phrase_routine(message, lang):
-                refused = L.template("phrase_routine_refused", lang)
-                await self._context_mgr.add_turn(conversation_id, "assistant", refused)
-                return refused
-
-            if (
-                not later
-                and self._ha_local is not None
-                and asks_for_second_room(message, lang)
-                and self._ha_local.music_players_playing()
-            ):
-                refused = L.template("second_room_refused", lang)
-                await self._context_mgr.add_turn(conversation_id, "assistant", refused)
-                return refused
-
-            try:
-                media_result = (
-                    None
-                    if later
-                    else await async_try_media_shortcut(
-                        self._hass, message, lang=lang, device_id=device_id
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("AI Plugin: media shortcut raised", exc_info=True)
-                media_result = None
-            if media_result is not None:
-                handled, media_reply = media_result
-                if handled:
-                    await self._context_mgr.add_turn(
-                        conversation_id, "assistant", media_reply
-                    )
-                    return media_reply
-
-            try:
-                sweep_result = (
-                    None
-                    if later
-                    else await async_try_domain_sweep_shortcut(
-                        self._hass, message, lang=lang, device_id=device_id
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("AI Plugin: sweep shortcut raised", exc_info=True)
-                sweep_result = None
-            if sweep_result is not None:
-                handled, sweep_reply = sweep_result
-                if handled:
-                    await self._context_mgr.add_turn(
-                        conversation_id, "assistant", sweep_reply
-                    )
-                    return sweep_reply
-
-            try:
-                action_result = (
-                    None
-                    if later
-                    else await async_try_action_shortcut(
-                        self._hass, message, lang=lang, device_id=device_id
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("AI Plugin: action shortcut raised", exc_info=True)
-                action_result = None
-            if action_result is not None:
-                handled, action_reply = action_result
-                if handled:
-                    await self._context_mgr.add_turn(
-                        conversation_id, "assistant", action_reply
-                    )
-                    return action_reply
-
+            # Identify speaker early so Admin-MCP rules guard shortcuts and tools alike
             speaker_task: asyncio.Task | None = None
-            owner = (
-                match_find_phone(message, lang) if self._can_ring_phones() else None
-            )
-            if owner is not None:
-                if (
-                    not owner
-                    and self._voice_id is not None
-                    and self._voice_id.enabled
-                    and self._voice_id.should_identify(message, device_id, user_id)
-                ):
-                    speaker_task = asyncio.get_running_loop().create_task(
-                        self._voice_id.async_identify(message, device_id)
-                    )
-                try:
-                    phone_reply = await self._find_phone_shortcut(
-                        owner, user_id, speaker_task, lang
-                    )
-                except Exception:  # noqa: BLE001
-                    _LOGGER.debug("AI Plugin: phone shortcut raised", exc_info=True)
-                    phone_reply = None
-                if phone_reply:
-                    await self._context_mgr.add_turn(
-                        conversation_id, "assistant", phone_reply
-                    )
-                    return phone_reply
-
-            # Start async Voice-ID in parallel while building tool schemas
             if (
-                speaker_task is None
-                and self._voice_id is not None
+                self._voice_id is not None
                 and self._voice_id.enabled
                 and self._voice_id.should_identify(message, device_id, user_id)
             ):
                 speaker_task = asyncio.get_running_loop().create_task(
                     self._voice_id.async_identify(message, device_id)
                 )
-
-            tool_schemas = self._tool_schemas_for(message, voice_mode, device_id)
-            self._note_prompt_head(system_prompt, tool_schemas, voice_mode)
-            schema_tokens = self._context_mgr.estimate_tokens(str(tool_schemas))
 
             speaker = None
             if speaker_task is not None:
@@ -773,9 +747,8 @@ class Orchestrator(
                 if speaker is not None:
                     user_id = speaker.memory_key
                 else:
-                    # Voice-ID checked the audio and found no known person:
-                    # do not fall back to the tablet's signed-in HA account.
                     user_id = None
+
             if self._turn_speakers is None:
                 self._turn_speakers = {}
             if device_id:
@@ -786,11 +759,142 @@ class Orchestrator(
                 else:
                     self._turn_speakers.pop(device_id, None)
 
+            admin_person, admin_name = self._admin_restriction_target()
+            if admin_person is not None:
+                if speaker_task is not None:
+                    speaking_pid = speaker.person_id if speaker is not None else None
+                else:
+                    speaking_pid = person_for_user(self._hass, user_id)
+                is_admin = speaking_pid == admin_person
+            else:
+                is_admin = True
+
+            restricted_admin_name = admin_name if not is_admin else None
+
+            if is_admin:
+                broadcast_reply = await self._broadcast_turn(
+                    message, conversation_id, device_id, lang
+                )
+                if broadcast_reply is not None:
+                    await self._context_mgr.add_turn(
+                        conversation_id, "assistant", broadcast_reply
+                    )
+                    return broadcast_reply
+
+                message_reply = await self._message_answer_turn(
+                    message, conversation_id, device_id, user_id, lang
+                )
+                if message_reply is not None:
+                    await self._context_mgr.add_turn(
+                        conversation_id, "assistant", message_reply
+                    )
+                    return message_reply
+
+            later = names_later_time(message, lang)
+
+            if asks_for_phrase_routine(message, lang):
+                refused = L.template("phrase_routine_refused", lang)
+                await self._context_mgr.add_turn(conversation_id, "assistant", refused)
+                return refused
+
+            if is_admin:
+                if (
+                    not later
+                    and self._ha_local is not None
+                    and asks_for_second_room(message, lang)
+                    and self._ha_local.music_players_playing()
+                ):
+                    refused = L.template("second_room_refused", lang)
+                    await self._context_mgr.add_turn(
+                        conversation_id, "assistant", refused
+                    )
+                    return refused
+
+                try:
+                    media_result = (
+                        None
+                        if later
+                        else await async_try_media_shortcut(
+                            self._hass, message, lang=lang, device_id=device_id
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("AI Plugin: media shortcut raised", exc_info=True)
+                    media_result = None
+                if media_result is not None:
+                    handled, media_reply = media_result
+                    if handled:
+                        await self._context_mgr.add_turn(
+                            conversation_id, "assistant", media_reply
+                        )
+                        return media_reply
+
+                try:
+                    sweep_result = (
+                        None
+                        if later
+                        else await async_try_domain_sweep_shortcut(
+                            self._hass, message, lang=lang, device_id=device_id
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("AI Plugin: sweep shortcut raised", exc_info=True)
+                    sweep_result = None
+                if sweep_result is not None:
+                    handled, sweep_reply = sweep_result
+                    if handled:
+                        await self._context_mgr.add_turn(
+                            conversation_id, "assistant", sweep_reply
+                        )
+                        return sweep_reply
+
+                try:
+                    action_result = (
+                        None
+                        if later
+                        else await async_try_action_shortcut(
+                            self._hass, message, lang=lang, device_id=device_id
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("AI Plugin: action shortcut raised", exc_info=True)
+                    action_result = None
+                if action_result is not None:
+                    handled, action_reply = action_result
+                    if handled:
+                        await self._context_mgr.add_turn(
+                            conversation_id, "assistant", action_reply
+                        )
+                        return action_reply
+
+                owner = (
+                    match_find_phone(message, lang) if self._can_ring_phones() else None
+                )
+                if owner is not None:
+                    try:
+                        phone_reply = await self._find_phone_shortcut(
+                            owner, user_id, None, lang
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("AI Plugin: phone shortcut raised", exc_info=True)
+                        phone_reply = None
+                    if phone_reply:
+                        await self._context_mgr.add_turn(
+                            conversation_id, "assistant", phone_reply
+                        )
+                        return phone_reply
+
+            tool_schemas = self._tool_schemas_for(
+                message, voice_mode, device_id, is_admin=is_admin
+            )
+            self._note_prompt_head(system_prompt, tool_schemas, voice_mode)
+            schema_tokens = self._context_mgr.estimate_tokens(str(tool_schemas))
+
             diary = getattr(self, "_diary", None)
             diary_owner = (
                 self._speaking_person(device_id, user_id) if diary is not None else None
             )
-            if diary is not None and asks_to_forget_diary(message, lang):
+            if diary is not None and is_admin and asks_to_forget_diary(message, lang):
                 gone = await diary.async_forget(diary_owner)
                 self._diary_convs.pop(conversation_id, None)
                 forgot = L.template(
@@ -816,6 +920,7 @@ class Orchestrator(
                 system_prompt=system_prompt,
                 tool_tokens=schema_tokens,
                 room=caller_room,
+                restricted_to_admin=restricted_admin_name,
             )
             notes, _diary_texts = await self._diary_recall_block(
                 message, conversation_id, diary_owner, system_prompt, schema_tokens
@@ -846,6 +951,8 @@ class Orchestrator(
                         device_id=device_id,
                         language=language,
                         gate=gate,
+                        is_admin=is_admin,
+                        admin_name=admin_name,
                     )
                 elif gate.active:
                     response = await self._provider.async_chat_stream(
@@ -922,7 +1029,8 @@ class Orchestrator(
             )
 
         if (
-            self._feature_on(CONF_TOOL_BROADCAST)
+            is_admin
+            and self._feature_on(CONF_TOOL_BROADCAST)
             and asks_what_to_broadcast(message, stored_reply, lang)
             and not _any_tool_call(tool_msgs, BROADCAST_TOOL_NAME)
         ):
@@ -930,9 +1038,10 @@ class Orchestrator(
                 device_id or conversation_id
             ] = time.monotonic()
 
-        self._note_message_question(
-            stored_reply, tool_msgs, conversation_id, device_id, lang
-        )
+        if is_admin:
+            self._note_message_question(
+                stored_reply, tool_msgs, conversation_id, device_id, lang
+            )
 
         return stored_reply
 
@@ -1000,6 +1109,8 @@ class Orchestrator(
         device_id: str | None = None,
         language: str | None = None,
         gate: "_DeltaGate | None" = None,
+        is_admin: bool = True,
+        admin_name: str | None = None,
     ) -> tuple[str, list[dict]]:
         """Run the tool loop; on slow look-ups say 'one second'."""
         wait = _WaitLine()
@@ -1014,6 +1125,8 @@ class Orchestrator(
                 language,
                 gate,
                 wait,
+                is_admin=is_admin,
+                admin_name=admin_name,
             )
         finally:
             if wait.timer is not None:
@@ -1066,6 +1179,8 @@ class Orchestrator(
         language: str | None,
         gate: "_DeltaGate | None",
         wait: "_WaitLine",
+        is_admin: bool = True,
+        admin_name: str | None = None,
     ) -> tuple[str, list[dict]]:
         """Run the native function-calling loop: call LLM -> execute tools -> repeat."""
         import json as _json
@@ -1131,6 +1246,8 @@ class Orchestrator(
                         device_id=device_id,
                         language=language,
                         available_tools=valid_tool_names,
+                        is_admin=is_admin,
+                        admin_name=admin_name,
                     )
                     tool_msg = {
                         "role": "tool",
@@ -1189,6 +1306,8 @@ class Orchestrator(
                     device_id=device_id,
                     language=language,
                     available_tools=valid_tool_names,
+                    is_admin=is_admin,
+                    admin_name=admin_name,
                 )
                 if wait.timer is not None:
                     wait.timer.cancel()
@@ -1421,8 +1540,17 @@ class Orchestrator(
         device_id: str | None = None,
         language: str | None = None,
         available_tools: set[str] | None = None,
+        is_admin: bool = True,
+        admin_name: str | None = None,
     ) -> str:
         """Route a tool call to ha_local, vision, memory, web search, or MCP."""
+        if not is_admin and not self._is_non_admin_tool_allowed(name, arguments):
+            owner = admin_name or "the admin"
+            return (
+                f"[BLOCKED: Admin mode is active. Only {owner} may control devices "
+                "other than lights or use admin/MCP tools. Politely and humorously "
+                f"refuse this request and tell the speaker to ask {owner}.]"
+            )
         if self._hass is not None:
             self._hass.data.setdefault(DOMAIN, {}).setdefault(
                 "_status_meta", {"area": None, "emotion": None, "last_tool": None}

@@ -578,3 +578,8 @@ DEFAULT_AUTO_DUCKING = False
 # Background voice-prompt prefix cache warmup
 CONF_PROMPT_WARMUP = "prompt_warmup"
 DEFAULT_PROMPT_WARMUP = True
+
+# Admin-MCP mode: restrict non-admin speakers to lights and weather only
+CONF_ADMIN_MCP_ENABLED = "admin_mcp_enabled"
+CONF_ADMIN_PERSON = "admin_person"
+DEFAULT_ADMIN_MCP_ENABLED = False
