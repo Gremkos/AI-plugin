@@ -350,8 +350,14 @@ class VoiceIDManager:
     # ── identification (LLM turns only) ─────────────────────────────────────
 
     def should_identify(self, text: str, device_id: str | None, user_id: str | None) -> bool:
+        """Identify whenever a voice clip is buffered (even on signed-in tablets)
+        or when no HA user is attached to the turn."""
         return bool(
-            self.enabled and device_id and user_id is None and self.has_profiles() and text
+            self.enabled
+            and device_id
+            and (user_id is None or self.buffers.peek_clip(text) is not None)
+            and self.has_profiles()
+            and text
         )
 
     async def async_identify(self, text: str, device_id: str) -> Identity | None:
