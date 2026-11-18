@@ -40,6 +40,7 @@ from ..const import (
     CONF_MAX_TOOL_ITERATIONS,
     CONF_MEMORY_ENABLED,
     CONF_OFFLINE_FALLBACK,
+    CONF_PROMPT_WARMUP,
     CONF_PRUNE_TOOL_SCHEMAS,
     CONF_RESPONSE_TIMEOUT,
     CONF_SELF_ECHO_FILTER,
@@ -70,6 +71,7 @@ from ..const import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_MEMORY_ENABLED,
     DEFAULT_OFFLINE_FALLBACK,
+    DEFAULT_PROMPT_WARMUP,
     DEFAULT_PRUNE_TOOL_SCHEMAS,
     DEFAULT_RESPONSE_TIMEOUT,
     DEFAULT_SELF_ECHO_FILTER,
@@ -385,6 +387,10 @@ def _system_fallback_schema(current: dict[str, Any]) -> vol.Schema:
                 )
             ),
             vol.Optional(
+                CONF_PROMPT_WARMUP,
+                default=current.get(CONF_PROMPT_WARMUP, DEFAULT_PROMPT_WARMUP),
+            ): selector.BooleanSelector(),
+            vol.Optional(
                 CONF_PRUNE_TOOL_SCHEMAS,
                 default=current.get(CONF_PRUNE_TOOL_SCHEMAS, DEFAULT_PRUNE_TOOL_SCHEMAS),
             ): selector.BooleanSelector(),
@@ -488,6 +494,10 @@ def _advanced_schema(current: dict[str, Any], hass: Any) -> vol.Schema:
             CONF_KEEP_ALIVE,
             description={"suggested_value": current.get(CONF_KEEP_ALIVE, DEFAULT_KEEP_ALIVE)},
         ): selector.TextSelector(),
+        vol.Optional(
+            CONF_PROMPT_WARMUP,
+            default=current.get(CONF_PROMPT_WARMUP, DEFAULT_PROMPT_WARMUP),
+        ): selector.BooleanSelector(),
         vol.Optional(
             CONF_PRUNE_TOOL_SCHEMAS,
             default=current.get(CONF_PRUNE_TOOL_SCHEMAS, DEFAULT_PRUNE_TOOL_SCHEMAS),

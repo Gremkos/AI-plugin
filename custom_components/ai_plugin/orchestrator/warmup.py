@@ -18,6 +18,8 @@ import json
 import logging
 import time
 
+from ..const import CONF_PROMPT_WARMUP, DEFAULT_PROMPT_WARMUP
+
 _LOGGER = logging.getLogger(__name__)
 
 # How often the head is checked. A change must be seen on two checks in a
@@ -64,10 +66,20 @@ class PromptWarmupMixin:
     _last_llm_at: float = 0.0
     _voice_turn_seen: bool = False
 
+    def _is_prompt_warmup_enabled(self) -> bool:
+        """Return True if background voice-prompt prefix warmup is enabled."""
+        entry = getattr(self, "_entry", None)
+        if entry is None:
+            return DEFAULT_PROMPT_WARMUP
+        return bool(entry.options.get(CONF_PROMPT_WARMUP, DEFAULT_PROMPT_WARMUP))
+
     def async_start_warmup(self) -> None:
         """Start the background check; it stops with async_close."""
-        if self._hass is None or self._prune_schemas:
-            # Pruned schemas differ per message: there is no stable head.
+        if (
+            self._hass is None
+            or self._prune_schemas
+            or not self._is_prompt_warmup_enabled()
+        ):
             return
         task = self._hass.async_create_background_task(
             self._keep_voice_prompt_warm(), "ai_plugin voice prompt read-in"
@@ -121,6 +133,8 @@ class PromptWarmupMixin:
         pending: str | None = None
         while True:
             await asyncio.sleep(WARM_CHECK_S)
+            if not self._is_prompt_warmup_enabled():
+                return
             if time.monotonic() - self._last_llm_at < WARM_IDLE_S:
                 continue
             if not self._voice_in_use():
