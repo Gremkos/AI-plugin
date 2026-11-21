@@ -1,18 +1,15 @@
-"""Lowering the music while a satellite listens.
+"""Lowering the music for the entire duration of a voice conversation.
 
 A satellite cannot cancel music from a speaker that is not its own, so it hears
-it as someone still talking: a one-second command kept the microphone open for
-7 seconds (measured 2026-11-01). Speakers in the room play quieter from the
-moment it starts listening until the words are in.
+it as someone still talking or drowns out the assistant's reply. Speakers play
+quieter from the moment a satellite becomes active (listening, processing, or
+responding) until the conversation actually finishes and the satellite returns
+to idle (with a short release grace period so follow-up questions do not cause
+volume pumping).
 
-This follows the satellite's own state, which Home Assistant keeps for every
-satellite, so it works with or without Mic to MediaPlayer. A satellite whose
-firmware lowers its own speaker as well just gets that speaker quieter still,
-and only while it listens.
-
-Two satellites can wake on the same word. Each one holds the duck and the volume
-comes back when the last one lets go; the level is saved once, or the second
-would save the lowered volume as the one to restore.
+Two satellites or handlers can hold a duck at the same time. Each holder is
+tracked separately and the original volume is saved once and restored only when
+the last holder releases it.
 """
 
 from __future__ import annotations
@@ -34,11 +31,13 @@ _LOGGER = logging.getLogger(__name__)
 
 DATA_KEY = "ai_plugin_music_ducks"
 DUCK_FACTOR = 0.2
-# A satellite stuck listening must not leave the music quiet.
-MAX_DUCK_S = 30.0
+# Safety cap so a stuck satellite never leaves music permanently quiet.
+MAX_DUCK_S = 90.0
+# Keep duck active briefly after returning to idle so follow-up turns do not pump.
+RELEASE_DELAY_S = 1.5
 # A restored speaker can report its lowered volume for a moment.
 STATE_LAG_S = 10.0
-_LISTENING = "listening"
+_ACTIVE_STATES = frozenset({"listening", "processing", "responding"})
 # A satellite's own speaker reports "playing" for its wake sound, for under a
 # second, just before it listens (measured 2026-11-01). That is not music.
 _WAKE_SOUND_S = 1.5
@@ -46,6 +45,19 @@ _WAKE_SOUND_S = 1.5
 
 def _ducks(hass) -> dict[str, dict]:
     return hass.data.setdefault(DATA_KEY, {})
+
+
+def all_playing_players(hass) -> list[str]:
+    """All currently playing music speakers (excluding TVs and player groups)."""
+    playing: list[str] = []
+    for state in hass.states.async_all("media_player"):
+        if (
+            state.state == "playing"
+            and state.attributes.get("device_class") != "tv"
+            and state.attributes.get("mass_player_type") != "group"
+        ):
+            playing.append(state.entity_id)
+    return sorted(playing)
 
 
 def room_players(hass, satellite_entity_id: str) -> list[str]:
@@ -124,10 +136,11 @@ def duck(hass, holder: str, players: list[str]) -> None:
         level = state.attributes.get("volume_level") if state is not None else None
         if entry is not None and now - entry["restored_at"] < STATE_LAG_S:
             level = entry["level"]
-        if not level:
+        if not isinstance(level, (int, float)) or level <= 0.05:
             continue
-        ducks[entity_id] = {"level": level, "holders": {holder}, "restored_at": 0.0}
-        _set_volume(hass, entity_id, level * DUCK_FACTOR)
+        ducks[entity_id] = {"level": float(level), "holders": {holder}, "restored_at": 0.0}
+        target_level = max(0.05, float(level) * DUCK_FACTOR)
+        _set_volume(hass, entity_id, target_level)
 
 
 def release(hass, holder: str) -> None:
@@ -155,28 +168,58 @@ def real_volume(hass, entity_id: str) -> float | None:
 
 
 def async_setup_listening_duck(hass) -> Callable[[], None]:
-    """Follow every satellite's state; returns what undoes it."""
+    """Follow every satellite's active conversation state; returns what undoes it."""
     limits: dict[str, Callable[[], None]] = {}
+    releases: dict[str, Callable[[], None]] = {}
 
-    def _end(satellite: str) -> None:
-        cancel = limits.pop(satellite, None)
-        if cancel is not None:
-            cancel()
+    def _release_now(satellite: str) -> None:
+        rel = releases.pop(satellite, None)
+        if rel is not None:
+            rel()
+        lim = limits.pop(satellite, None)
+        if lim is not None:
+            lim()
         release(hass, satellite)
 
-    def _start(satellite: str) -> None:
-        players = room_players(hass, satellite)
-        if not players:
+    def _schedule_end(satellite: str) -> None:
+        if satellite in releases:
             return
-        _LOGGER.debug("AI Plugin: lowering %s while %s listens", ", ".join(players), satellite)
-        duck(hass, satellite, players)
 
         @callback
-        def _limit(_now) -> None:
-            limits.pop(satellite, None)
+        def _delayed_release(_now) -> None:
+            releases.pop(satellite, None)
+            lim = limits.pop(satellite, None)
+            if lim is not None:
+                lim()
             release(hass, satellite)
 
-        limits[satellite] = async_call_later(hass, MAX_DUCK_S, _limit)
+        releases[satellite] = async_call_later(hass, RELEASE_DELAY_S, _delayed_release)
+
+    def _start(satellite: str) -> None:
+        pending_rel = releases.pop(satellite, None)
+        if pending_rel is not None:
+            pending_rel()
+        players = (
+            all_playing_players(hass)
+            if hass.data.get("ai_plugin", {}).get("auto_ducking", False)
+            else room_players(hass, satellite)
+        )
+        if not players:
+            return
+        _LOGGER.debug(
+            "AI Plugin: lowering %s for conversation on %s",
+            ", ".join(players),
+            satellite,
+        )
+        duck(hass, satellite, players)
+        if satellite not in limits:
+            @callback
+            def _limit(_now) -> None:
+                limits.pop(satellite, None)
+                releases.pop(satellite, None)
+                release(hass, satellite)
+
+            limits[satellite] = async_call_later(hass, MAX_DUCK_S, _limit)
 
     @callback
     def _is_satellite(event_data) -> bool:
@@ -186,14 +229,14 @@ def async_setup_listening_duck(hass) -> Callable[[], None]:
     def _on_state(event) -> None:
         old = event.data.get("old_state")
         new = event.data.get("new_state")
-        was = old is not None and old.state == _LISTENING
-        now = new is not None and new.state == _LISTENING
+        was_active = old is not None and old.state in _ACTIVE_STATES
+        now_active = new is not None and new.state in _ACTIVE_STATES
         satellite = event.data["entity_id"]
         try:
-            if now and not was:
+            if now_active:
                 _start(satellite)
-            elif was and not now:
-                _end(satellite)
+            elif was_active and not now_active:
+                _schedule_end(satellite)
         except Exception:  # noqa: BLE001 — must never disturb the voice turn
             _LOGGER.debug("AI Plugin: music ducking failed", exc_info=True)
 
@@ -201,7 +244,7 @@ def async_setup_listening_duck(hass) -> Callable[[], None]:
 
     def _undo() -> None:
         unsubscribe()
-        for satellite in list(limits):
-            _end(satellite)
+        for satellite in list(set(limits) | set(releases)):
+            _release_now(satellite)
 
     return _undo
