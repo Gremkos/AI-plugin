@@ -61,6 +61,7 @@ _PLAYER_DONE_STATES = frozenset({"idle", "paused", "off", "standby"})
 _UNSET = object()
 _CONV_DUCK_HOLDER = "ai_plugin_conversation"
 _SELF_ECHO_TTL_S = 25.0
+_MAX_ECHO_RETRIES = 2
 
 
 def _norm_echo_text(text: str) -> str:
@@ -377,24 +378,46 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
         )
-        self._recent_replies: dict[str, tuple[str, float]] = {}
+        # key -> [reply, timestamp, expects_follow_up, retries_left]
+        self._recent_replies: dict[str, list[Any]] = {}
         hass.data.setdefault(DOMAIN, {})["auto_ducking"] = bool(
             entry.options.get("auto_ducking", False)
         )
 
-    def _remember_reply(self, target_id: str | None, reply: str) -> None:
+    def _remember_reply(
+        self,
+        target_id: str | None,
+        reply: str,
+        expects_follow_up: bool = False,
+    ) -> None:
         """Store the assistant's last spoken reply so self-echoes are filtered."""
         if not reply or not reply.strip():
             return
         now = time.monotonic()
-        self._recent_replies["__last__"] = (reply, now)
+        self._recent_replies["__last__"] = [
+            reply,
+            now,
+            expects_follow_up,
+            _MAX_ECHO_RETRIES,
+        ]
         if target_id:
-            self._recent_replies[target_id] = (reply, now)
+            self._recent_replies[target_id] = [
+                reply,
+                now,
+                expects_follow_up,
+                _MAX_ECHO_RETRIES,
+            ]
 
     def _check_and_clear_echo(
         self, user_input: ConversationInput, conversation_id: str
-    ) -> bool:
-        """Return True if ``user_input.text`` is an echo of Alice's own reply."""
+    ) -> tuple[bool, bool]:
+        """Check if ``user_input.text`` is an echo of Alice's own TTS reply.
+
+        Returns ``(is_echo, should_keep_listening)``. When a follow-up question
+        was asked and the satellite opened its mic too early while TTS was
+        still playing, we drop the echo and keep ``continue_conversation=True``
+        (up to ``_MAX_ECHO_RETRIES`` times) so the user can actually answer.
+        """
         now = time.monotonic()
         keys = [
             k
@@ -410,14 +433,21 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             entry = self._recent_replies.get(key)
             if entry is None:
                 continue
-            last_reply, ts = entry
+            last_reply, ts, expects_follow_up, retries_left = entry
             if now - ts > _SELF_ECHO_TTL_S:
                 self._recent_replies.pop(key, None)
                 continue
             if _is_self_echo(user_input.text, last_reply):
-                self._recent_replies.pop(key, None)
-                return True
-        return False
+                if expects_follow_up and retries_left > 0:
+                    for other_val in self._recent_replies.values():
+                        if other_val[0] == last_reply:
+                            other_val[3] = retries_left - 1
+                    return True, True
+                for other_k, other_val in list(self._recent_replies.items()):
+                    if other_val[0] == last_reply:
+                        self._recent_replies.pop(other_k, None)
+                return True, False
+        return False, False
 
     def _is_feedback_loop_device(self, user_input: ConversationInput) -> bool:
         """True if the calling device/satellite is marked to suppress follow-up listening."""
@@ -515,24 +545,38 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             or user_input.conversation_id
             or ulid_util.ulid_now()
         )
+        can_duck = _should_auto_duck(user_input)
 
-        # Drop self-echoes immediately so Alice never answers her own TTS voice
-        if self._check_and_clear_echo(user_input, conversation_id):
+        # Drop self-echoes immediately so Alice never answers her own TTS voice,
+        # while keeping the mic open if a follow-up answer is still expected.
+        is_echo, keep_listening = self._check_and_clear_echo(
+            user_input, conversation_id
+        )
+        if is_echo:
             _LOGGER.info(
-                "AI Plugin: ignored self-echo on %s (%r)",
+                "AI Plugin: ignored self-echo on %s (keep_listening=%s, text=%r)",
                 getattr(user_input, "satellite_id", None) or user_input.device_id,
+                keep_listening,
                 (user_input.text or "")[:80],
             )
-            async_set_assist_status(self.hass, "idle")
+            if keep_listening:
+                async_set_assist_status(
+                    self.hass,
+                    "listening",
+                    auto_idle_delay=8.0,
+                    expects_follow_up=True,
+                    allow_ducking=can_duck,
+                )
+            else:
+                async_set_assist_status(self.hass, "idle")
             empty_response = intent.IntentResponse(language=user_input.language)
             empty_response.async_set_speech("")
             return ConversationResult(
                 response=empty_response,
                 conversation_id=conversation_id,
-                continue_conversation=False,
+                continue_conversation=keep_listening,
             )
 
-        can_duck = _should_auto_duck(user_input)
         area_name = _resolve_device_area(self.hass, user_input.device_id)
         async_update_assist_meta(self.hass, area=area_name, emotion=None)
         async_set_assist_status(self.hass, "processing", allow_ducking=can_duck)
@@ -611,11 +655,6 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("AI Plugin: delta consumer failed", exc_info=True)
 
-        self._remember_reply(
-            getattr(user_input, "satellite_id", None) or user_input.device_id, reply
-        )
-        self._remember_reply(conversation_id, reply)
-
         intent_response = intent.IntentResponse(language=user_input.language)
         intent_response.async_set_speech(reply)
         mode = follow_up_mode(self._entry.options)
@@ -625,6 +664,17 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             continue_conversation = ends_with_question(reply)
         else:
             continue_conversation = mode == FOLLOW_UP_ALWAYS
+
+        self._remember_reply(
+            getattr(user_input, "satellite_id", None) or user_input.device_id,
+            reply,
+            expects_follow_up=continue_conversation,
+        )
+        self._remember_reply(
+            conversation_id,
+            reply,
+            expects_follow_up=continue_conversation,
+        )
 
         async_update_assist_meta(self.hass, emotion=_extract_emotion(reply))
         player_entity = _device_media_player(self.hass, user_input.device_id)
