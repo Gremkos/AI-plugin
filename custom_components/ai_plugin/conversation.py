@@ -27,10 +27,14 @@ from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import ulid as ulid_util
 
 from .const import (
+    CONF_AUTO_DUCKING,
     CONF_FEEDBACK_LOOP_DEVICES,
     CONF_OFFLINE_FALLBACK,
+    CONF_SELF_ECHO_FILTER,
     CONF_WORKER_STATUS_ENTITY,
+    DEFAULT_AUTO_DUCKING,
     DEFAULT_OFFLINE_FALLBACK,
+    DEFAULT_SELF_ECHO_FILTER,
     DOMAIN,
     FOLLOW_UP_ALWAYS,
     FOLLOW_UP_AUTO,
@@ -61,7 +65,6 @@ _PLAYER_DONE_STATES = frozenset({"idle", "paused", "off", "standby"})
 _UNSET = object()
 _CONV_DUCK_HOLDER = "ai_plugin_conversation"
 _SELF_ECHO_TTL_S = 25.0
-_MAX_ECHO_RETRIES = 2
 
 
 def _norm_echo_text(text: str) -> str:
@@ -71,7 +74,7 @@ def _norm_echo_text(text: str) -> str:
 
 
 def _is_self_echo(incoming: str, last_reply: str) -> bool:
-    """True when ``incoming`` is the microphone picking up Alice's own TTS reply."""
+    """True when ``incoming`` repeats parts of the assistant's own TTS reply."""
     inc = _norm_echo_text(incoming)
     rep = _norm_echo_text(last_reply)
     if not inc or not rep:
@@ -378,46 +381,33 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
         )
-        # key -> [reply, timestamp, expects_follow_up, retries_left]
-        self._recent_replies: dict[str, list[Any]] = {}
+        # key -> (reply, timestamp)
+        self._recent_replies: dict[str, tuple[str, float]] = {}
         hass.data.setdefault(DOMAIN, {})["auto_ducking"] = bool(
-            entry.options.get("auto_ducking", False)
+            entry.options.get(CONF_AUTO_DUCKING, DEFAULT_AUTO_DUCKING)
         )
 
-    def _remember_reply(
-        self,
-        target_id: str | None,
-        reply: str,
-        expects_follow_up: bool = False,
-    ) -> None:
-        """Store the assistant's last spoken reply so self-echoes are filtered."""
-        if not reply or not reply.strip():
+    def _self_echo_filter_enabled(self) -> bool:
+        """Return True if the satellite self-echo filter option is enabled."""
+        return bool(
+            self._entry.options.get(CONF_SELF_ECHO_FILTER, DEFAULT_SELF_ECHO_FILTER)
+        )
+
+    def _remember_reply(self, target_id: str | None, reply: str) -> None:
+        """Store the assistant's last spoken reply when self-echo filtering is on."""
+        if not self._self_echo_filter_enabled() or not reply or not reply.strip():
             return
         now = time.monotonic()
-        self._recent_replies["__last__"] = [
-            reply,
-            now,
-            expects_follow_up,
-            _MAX_ECHO_RETRIES,
-        ]
+        self._recent_replies["__last__"] = (reply, now)
         if target_id:
-            self._recent_replies[target_id] = [
-                reply,
-                now,
-                expects_follow_up,
-                _MAX_ECHO_RETRIES,
-            ]
+            self._recent_replies[target_id] = (reply, now)
 
     def _check_and_clear_echo(
         self, user_input: ConversationInput, conversation_id: str
-    ) -> tuple[bool, bool]:
-        """Check if ``user_input.text`` is an echo of Alice's own TTS reply.
-
-        Returns ``(is_echo, should_keep_listening)``. When a follow-up question
-        was asked and the satellite opened its mic too early while TTS was
-        still playing, we drop the echo and keep ``continue_conversation=True``
-        (up to ``_MAX_ECHO_RETRIES`` times) so the user can actually answer.
-        """
+    ) -> bool:
+        """Return True if ``user_input.text`` is an echo of the assistant's own reply."""
+        if not self._self_echo_filter_enabled():
+            return False
         now = time.monotonic()
         keys = [
             k
@@ -433,21 +423,16 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             entry = self._recent_replies.get(key)
             if entry is None:
                 continue
-            last_reply, ts, expects_follow_up, retries_left = entry
+            last_reply, ts = entry
             if now - ts > _SELF_ECHO_TTL_S:
                 self._recent_replies.pop(key, None)
                 continue
             if _is_self_echo(user_input.text, last_reply):
-                if expects_follow_up and retries_left > 0:
-                    for other_val in self._recent_replies.values():
-                        if other_val[0] == last_reply:
-                            other_val[3] = retries_left - 1
-                    return True, True
-                for other_k, other_val in list(self._recent_replies.items()):
-                    if other_val[0] == last_reply:
+                for other_k, (other_reply, _) in list(self._recent_replies.items()):
+                    if other_reply == last_reply:
                         self._recent_replies.pop(other_k, None)
-                return True, False
-        return False, False
+                return True
+        return False
 
     def _is_feedback_loop_device(self, user_input: ConversationInput) -> bool:
         """True if the calling device/satellite is marked to suppress follow-up listening."""
@@ -547,34 +532,20 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         )
         can_duck = _should_auto_duck(user_input)
 
-        # Drop self-echoes immediately so Alice never answers her own TTS voice,
-        # while keeping the mic open if a follow-up answer is still expected.
-        is_echo, keep_listening = self._check_and_clear_echo(
-            user_input, conversation_id
-        )
-        if is_echo:
+        # Optional self-echo guard (controlled via CONF_SELF_ECHO_FILTER)
+        if self._check_and_clear_echo(user_input, conversation_id):
             _LOGGER.info(
-                "AI Plugin: ignored self-echo on %s (keep_listening=%s, text=%r)",
+                "AI Plugin: ignored self-echo on %s (text=%r)",
                 getattr(user_input, "satellite_id", None) or user_input.device_id,
-                keep_listening,
                 (user_input.text or "")[:80],
             )
-            if keep_listening:
-                async_set_assist_status(
-                    self.hass,
-                    "listening",
-                    auto_idle_delay=8.0,
-                    expects_follow_up=True,
-                    allow_ducking=can_duck,
-                )
-            else:
-                async_set_assist_status(self.hass, "idle")
+            async_set_assist_status(self.hass, "idle")
             empty_response = intent.IntentResponse(language=user_input.language)
             empty_response.async_set_speech("")
             return ConversationResult(
                 response=empty_response,
                 conversation_id=conversation_id,
-                continue_conversation=keep_listening,
+                continue_conversation=False,
             )
 
         area_name = _resolve_device_area(self.hass, user_input.device_id)
@@ -622,8 +593,8 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             if consumer is None:
                 consumer = asyncio.get_running_loop().create_task(_consume())
 
-        # External satellites (like Ava) expect an atomic ConversationResult
-        # rather than chunked delta streaming so the pipeline closes cleanly.
+        # External satellites expect an atomic ConversationResult rather than
+        # chunked delta streaming so the pipeline closes cleanly.
         is_satellite = bool(getattr(user_input, "satellite_id", None))
         stream_capable = (
             hasattr(chat_log, "async_add_delta_content_stream") and not is_satellite
@@ -668,13 +639,8 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         self._remember_reply(
             getattr(user_input, "satellite_id", None) or user_input.device_id,
             reply,
-            expects_follow_up=continue_conversation,
         )
-        self._remember_reply(
-            conversation_id,
-            reply,
-            expects_follow_up=continue_conversation,
-        )
+        self._remember_reply(conversation_id, reply)
 
         async_update_assist_meta(self.hass, emotion=_extract_emotion(reply))
         player_entity = _device_media_player(self.hass, user_input.device_id)
