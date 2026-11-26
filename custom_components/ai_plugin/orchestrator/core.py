@@ -1547,9 +1547,9 @@ class Orchestrator(
         if not is_admin and not self._is_non_admin_tool_allowed(name, arguments):
             owner = admin_name or "the admin"
             return (
-                f"[BLOCKED: Admin mode is active. Only {owner} may control devices "
-                "other than lights or use admin/MCP tools. Politely and humorously "
-                f"refuse this request and tell the speaker to ask {owner}.]"
+                f"[BLOCKED: Admin mode is active. Only {owner} is authorized to control devices "
+                "other than lights or use admin/MCP tools. Refuse this request politely and clearly "
+                "in the speaker's language without assuming any relationship to the speaker.]"
             )
         if self._hass is not None:
             self._hass.data.setdefault(DOMAIN, {}).setdefault(
