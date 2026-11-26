@@ -86,6 +86,10 @@ from ..const import (
     MAX_CONVERSATION_MEMORY,
     MAX_DIARY_DAYS,
     follow_up_mode,
+    CONF_EPHEMERAL_FILTER_ENABLED,
+    CONF_EPHEMERAL_PREFIXES,
+    DEFAULT_EPHEMERAL_FILTER_ENABLED,
+    DEFAULT_EPHEMERAL_PREFIXES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -201,6 +205,18 @@ def _memory_schema(current: dict[str, Any]) -> vol.Schema:
                 CONF_DIARY_SHARE,
                 default=current.get(CONF_DIARY_SHARE, DEFAULT_DIARY_SHARE),
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_EPHEMERAL_FILTER_ENABLED,
+                default=current.get(
+                    CONF_EPHEMERAL_FILTER_ENABLED, DEFAULT_EPHEMERAL_FILTER_ENABLED
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_EPHEMERAL_PREFIXES,
+                default=current.get(
+                    CONF_EPHEMERAL_PREFIXES, DEFAULT_EPHEMERAL_PREFIXES
+                ),
+            ): selector.TextSelector(),
         }
     )
 

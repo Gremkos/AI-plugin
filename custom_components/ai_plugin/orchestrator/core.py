@@ -52,6 +52,7 @@ from ..const import (
     DEFAULT_SUMMARIZATION_ENABLED,
     DOMAIN,
     features_off,
+    matches_ephemeral_prefix,
     tools_off,
 )
 from ..context_manager import ContextManager
@@ -662,19 +663,24 @@ class Orchestrator(
         )
         lang = (language or "en").split("-")[0].lower()
         turn_attachments = self._filter_turn_attachments(attachments)
+        ephemeral_input = matches_ephemeral_prefix(message, self._entry.options)
 
         from ..const import TIMER_DONE_SENTINEL  # noqa: PLC0415
 
         if message.startswith(TIMER_DONE_SENTINEL):
             return await self._handle_timer_done(message, device_id, lang)
 
-        if self._voice_id is not None and self._voice_id.enrollment_active(device_id):
+        if (
+            not ephemeral_input
+            and self._voice_id is not None
+            and self._voice_id.enrollment_active(device_id)
+        ):
             enroll_reply = await self._voice_id.async_enrollment_turn(message, device_id)
             if enroll_reply is not None:
                 return enroll_reply
 
         jobs_before: set[str] | None = None
-        if getattr(self, "_scheduler", None) is not None:
+        if not ephemeral_input and getattr(self, "_scheduler", None) is not None:
             alarm_reply = await self._scheduler.async_handle_spoken(
                 message, device_id, lang
             )
@@ -684,6 +690,7 @@ class Orchestrator(
 
         stream_safe = (
             on_delta is not None
+            and not ephemeral_input
             and not self._reasoning_active()
             and not _is_action_command(message)
         )
@@ -700,6 +707,8 @@ class Orchestrator(
             self._conv_locks.pop(stale_id, None)
             self._last_entities.pop(stale_id, None)
 
+        ephemeral_turn = ephemeral_input
+
         async with self._get_conv_lock(conversation_id):
             _PREVIOUS_REPLY.set(
                 next(
@@ -713,24 +722,26 @@ class Orchestrator(
                     "",
                 )
             )
-            await self._context_mgr.add_turn(conversation_id, "user", message)
+            if not ephemeral_input:
+                await self._context_mgr.add_turn(conversation_id, "user", message)
 
-            # Deterministic math/time/date shortcuts (safe for all speakers)
-            try:
-                shortcut_reply = try_shortcut(self._hass, message, lang=lang)
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug("AI Plugin: shortcut raised", exc_info=True)
-                shortcut_reply = None
-            if shortcut_reply:
-                await self._context_mgr.add_turn(
-                    conversation_id, "assistant", shortcut_reply
-                )
-                return shortcut_reply
+                # Deterministic math/time/date shortcuts (safe for all speakers)
+                try:
+                    shortcut_reply = try_shortcut(self._hass, message, lang=lang)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("AI Plugin: shortcut raised", exc_info=True)
+                    shortcut_reply = None
+                if shortcut_reply:
+                    await self._context_mgr.add_turn(
+                        conversation_id, "assistant", shortcut_reply
+                    )
+                    return shortcut_reply
 
             # Identify speaker early so Admin-MCP rules guard shortcuts and tools alike
             speaker_task: asyncio.Task | None = None
             if (
-                self._voice_id is not None
+                not ephemeral_input
+                and self._voice_id is not None
                 and self._voice_id.enabled
                 and self._voice_id.should_identify(message, device_id, user_id)
             ):
@@ -771,7 +782,7 @@ class Orchestrator(
 
             restricted_admin_name = admin_name if not is_admin else None
 
-            if is_admin:
+            if is_admin and not ephemeral_input:
                 broadcast_reply = await self._broadcast_turn(
                     message, conversation_id, device_id, lang
                 )
@@ -792,12 +803,12 @@ class Orchestrator(
 
             later = names_later_time(message, lang)
 
-            if asks_for_phrase_routine(message, lang):
+            if not ephemeral_input and asks_for_phrase_routine(message, lang):
                 refused = L.template("phrase_routine_refused", lang)
                 await self._context_mgr.add_turn(conversation_id, "assistant", refused)
                 return refused
 
-            if is_admin:
+            if is_admin and not ephemeral_input:
                 if (
                     not later
                     and self._ha_local is not None
@@ -894,7 +905,12 @@ class Orchestrator(
             diary_owner = (
                 self._speaking_person(device_id, user_id) if diary is not None else None
             )
-            if diary is not None and is_admin and asks_to_forget_diary(message, lang):
+            if (
+                not ephemeral_input
+                and diary is not None
+                and is_admin
+                and asks_to_forget_diary(message, lang)
+            ):
                 gone = await diary.async_forget(diary_owner)
                 self._diary_convs.pop(conversation_id, None)
                 forgot = L.template(
@@ -922,20 +938,36 @@ class Orchestrator(
                 room=caller_room,
                 restricted_to_admin=restricted_admin_name,
             )
-            notes, _diary_texts = await self._diary_recall_block(
-                message, conversation_id, diary_owner, system_prompt, schema_tokens
-            )
+            if ephemeral_input:
+                notes = ""
+            else:
+                notes, _diary_texts = await self._diary_recall_block(
+                    message, conversation_id, diary_owner, system_prompt, schema_tokens
+                )
             volatile = "\n\n".join(p for p in (volatile, notes) if p)
-            self._diary_note(conversation_id, "user", message, diary_owner, lang)
+            if not ephemeral_input:
+                self._diary_note(conversation_id, "user", message, diary_owner, lang)
             reserved_tokens = schema_tokens + self._context_mgr.estimate_tokens(volatile)
 
-            if volatile:
-                await self._context_mgr.add_before_last_user(
-                    conversation_id, {"role": "system", "content": volatile}
+            if ephemeral_input:
+                extra_msgs: list[dict[str, str]] = []
+                if volatile:
+                    extra_msgs.append({"role": "system", "content": volatile})
+                extra_msgs.append({"role": "user", "content": message})
+                messages = await self._context_mgr.get_messages(
+                    conversation_id,
+                    system_prompt,
+                    tool_tokens=schema_tokens,
+                    extra_messages=extra_msgs,
                 )
-            messages = await self._context_mgr.get_messages(
-                conversation_id, system_prompt, tool_tokens=schema_tokens
-            )
+            else:
+                if volatile:
+                    await self._context_mgr.add_before_last_user(
+                        conversation_id, {"role": "system", "content": volatile}
+                    )
+                messages = await self._context_mgr.get_messages(
+                    conversation_id, system_prompt, tool_tokens=schema_tokens
+                )
             llm_messages = self._attach_to_last_user_message(messages, turn_attachments)
 
             # Single-pass LLM execution
@@ -964,13 +996,11 @@ class Orchestrator(
                     reply = await self._provider.async_complete(llm_messages)
                     tool_msgs = []
             except Exception:
-                await self._context_mgr.remove_last_turn(conversation_id)
+                if not ephemeral_input:
+                    await self._context_mgr.remove_last_turn(conversation_id)
                 raise
             finally:
                 self._pending_vision_attachments = []
-
-            for msg in tool_msgs:
-                await self._context_mgr.add_raw_message(conversation_id, msg)
 
             narration_stripped = _strip_narration(reply, lang=lang)
             if narration_stripped:
@@ -1012,36 +1042,62 @@ class Orchestrator(
 
             gate.flush_final(stored_reply)
 
-            await self._context_mgr.add_turn(conversation_id, "assistant", history_reply)
-            self._diary_note(conversation_id, "assistant", history_reply)
+            ephemeral_turn = (
+                ephemeral_input
+                or matches_ephemeral_prefix(reply, self._entry.options)
+                or matches_ephemeral_prefix(stored_reply, self._entry.options)
+            )
+
+            if ephemeral_turn:
+                if not ephemeral_input:
+                    await self._context_mgr.remove_last_turn(conversation_id)
+                    diary_meta = self.__dict__.get("_diary_convs", {}).get(
+                        conversation_id
+                    )
+                    if (
+                        diary_meta
+                        and diary_meta.get("turns")
+                        and diary_meta["turns"][-1].get("role") == "user"
+                    ):
+                        diary_meta["turns"].pop()
+            else:
+                for msg in tool_msgs:
+                    await self._context_mgr.add_raw_message(conversation_id, msg)
+                await self._context_mgr.add_turn(
+                    conversation_id, "assistant", history_reply
+                )
+                self._diary_note(conversation_id, "assistant", history_reply)
+
             await self._announce_thinking_refused()
 
-            try:
-                entity_ctx = self._extract_entity_context(tool_msgs)
-            except Exception:  # noqa: BLE001
-                entity_ctx = None
-            if entity_ctx:
-                self._last_entities[conversation_id] = entity_ctx
+            if not ephemeral_turn:
+                try:
+                    entity_ctx = self._extract_entity_context(tool_msgs)
+                except Exception:  # noqa: BLE001
+                    entity_ctx = None
+                if entity_ctx:
+                    self._last_entities[conversation_id] = entity_ctx
 
-        if self._summarization_enabled:
-            self._schedule_summarization(
-                conversation_id, system_prompt, reserved_tokens
-            )
+        if not ephemeral_turn:
+            if self._summarization_enabled:
+                self._schedule_summarization(
+                    conversation_id, system_prompt, reserved_tokens
+                )
 
-        if (
-            is_admin
-            and self._feature_on(CONF_TOOL_BROADCAST)
-            and asks_what_to_broadcast(message, stored_reply, lang)
-            and not _any_tool_call(tool_msgs, BROADCAST_TOOL_NAME)
-        ):
-            self.__dict__.setdefault("_broadcast_asked", {})[
-                device_id or conversation_id
-            ] = time.monotonic()
+            if (
+                is_admin
+                and self._feature_on(CONF_TOOL_BROADCAST)
+                and asks_what_to_broadcast(message, stored_reply, lang)
+                and not _any_tool_call(tool_msgs, BROADCAST_TOOL_NAME)
+            ):
+                self.__dict__.setdefault("_broadcast_asked", {})[
+                    device_id or conversation_id
+                ] = time.monotonic()
 
-        if is_admin:
-            self._note_message_question(
-                stored_reply, tool_msgs, conversation_id, device_id, lang
-            )
+            if is_admin:
+                self._note_message_question(
+                    stored_reply, tool_msgs, conversation_id, device_id, lang
+                )
 
         return stored_reply
 

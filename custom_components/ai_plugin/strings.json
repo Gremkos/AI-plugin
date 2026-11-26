@@ -447,14 +447,18 @@
           "conversation_memory_minutes": "Remember a satellite's conversation for (minutes)",
           "diary_enabled": "Remember earlier conversations (diary)",
           "diary_days": "Keep diary notes for (days)",
-          "diary_share": "Share conversations between people"
+          "diary_share": "Share conversations between people",
+          "ephemeral_filter_enabled": "Exclude prefixed messages from chat history",
+          "ephemeral_prefixes": "Ephemeral message prefixes (comma-separated)"
         },
         "data_description": {
           "memory_enabled": "The remember, recall and forget tools and the saved facts the model reads each turn. Turn this off if you bring your own memory, for example through an MCP server. Saved facts are kept and come back when you turn it on again.",
           "conversation_memory_minutes": "How long a voice satellite remembers what was said, counted from the last turn. Within this time a follow-up such as \"and in the bedroom?\" still knows what it belongs to; after it, the next request starts a new conversation. 0 starts over whenever Home Assistant starts a new conversation, after a few minutes of quiet. Longer memory means longer prompts, which are summarized when they grow too long. Only for voice satellites: the Companion app and the Assist panel keep Home Assistant's own conversations. Default 15.",
           "diary_enabled": "Ten minutes after a conversation goes quiet, the model writes a few short notes about it: what was asked and the details it gave, such as recipe steps, amounts, names or plans. Device commands, greetings and small talk are left out. On later turns the notes closest to what is said are added to the prompt, so \"how do I start the stir-fry again?\" works hours or days later, from any satellite or the app. A small search model (about 40 MB) is downloaded once; until then notes are found by their words. Notes stay in the Home Assistant configuration folder. Say \"forget our conversations\" to delete your own.",
           "diary_days": "Older notes are deleted. Default 30.",
-          "diary_share": "Each note records whose conversation it was: the person recognised by voice, or the person signed in to the app. Off: everyone is shown only their own notes and those of voices that were not recognised. On: everyone's notes can come up in every conversation, always marked with whose conversation it was."
+          "diary_share": "Each note records whose conversation it was: the person recognised by voice, or the person signed in to the app. Off: everyone is shown only their own notes and those of voices that were not recognised. On: everyone's notes can come up in every conversation, always marked with whose conversation it was.",
+          "ephemeral_filter_enabled": "When enabled, requests and replies starting with any configured prefix (such as automated announcements or DJ transitions) are excluded from conversation history and the diary, and never trigger follow-up listening.",
+          "ephemeral_prefixes": "Comma-separated leading prefixes (default: [Durchsage], e.g. [Announcement], [DJ]). A matching leading prefix is automatically stripped from the reply before speech output."
         }
       },
       "tools": {

@@ -42,6 +42,9 @@ from ..const import (
     ERROR_INVALID_URL,
     ERROR_MODEL_NO_TOOLS,
     ERROR_MODEL_REQUIRED,
+    CONF_EPHEMERAL_FILTER_ENABLED,
+    CONF_EPHEMERAL_PREFIXES,
+    DEFAULT_EPHEMERAL_PREFIXES,
 )
 from ..exceptions import CannotConnect
 from ..option_values import merge_advanced_options
@@ -380,6 +383,12 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
             for key in (CONF_CONVERSATION_MEMORY, CONF_DIARY_DAYS):
                 if key in user_input:
                     user_input[key] = int(user_input[key])
+            user_input[CONF_EPHEMERAL_FILTER_ENABLED] = bool(
+                user_input.get(CONF_EPHEMERAL_FILTER_ENABLED, False)
+            )
+            user_input[CONF_EPHEMERAL_PREFIXES] = str(
+                user_input.get(CONF_EPHEMERAL_PREFIXES, DEFAULT_EPHEMERAL_PREFIXES)
+            ).strip()
             self._options = {**self._options, **user_input}
             return self.async_create_entry(title="", data=self._options)
         return self.async_show_form(

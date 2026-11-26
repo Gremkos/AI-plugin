@@ -449,14 +449,18 @@
           "conversation_memory_minutes": "Gespräch auf einem Satelliten merken für (Minuten)",
           "diary_enabled": "Frühere Gespräche merken (Tagebuch)",
           "diary_days": "Tagebuchnotizen aufbewahren für (Tage)",
-          "diary_share": "Gespräche zwischen Personen teilen"
+          "diary_share": "Gespräche zwischen Personen teilen",
+          "ephemeral_filter_enabled": "Nachrichten mit Präfix aus dem Chatverlauf ausschließen",
+          "ephemeral_prefixes": "Präfixe für flüchtige Nachrichten (kommagetrennt)"
         },
         "data_description": {
           "memory_enabled": "Die Tools zum Merken, Abrufen und Vergessen sowie die gespeicherten Fakten, die das Modell bei jeder Anfrage liest. Ausschalten, wenn du ein eigenes Gedächtnis (z. B. über einen MCP-Server) nutzt. Gespeicherte Fakten bleiben erhalten.",
           "conversation_memory_minutes": "Wie lange sich ein Sprachsatellit an Gesagtes erinnert, gerechnet ab der letzten Eingabe. Innerhalb dieser Zeit weiß eine Nachfrage wie \"und im Schlafzimmer?\" noch, worum es ging. 0 startet bei jeder neuen Home-Assistant-Konversation neu. Standard: 15.",
           "diary_enabled": "Zehn Minuten nach Gesprächsende schreibt das Modell kurze Notizen über gestellte Fragen und genannte Details (Rezeptschritte, Mengen, Namen, Pläne). Gerätebefehle und Smalltalk werden ausgelassen. Ein kleines Suchmodell (ca. 40 MB) wird einmalig heruntergeladen. Sage \"Vergiss unsere Gespräche\", um deine eigenen Einträge zu löschen.",
           "diary_days": "Ältere Notizen werden gelöscht. Standard: 30.",
-          "diary_share": "Jede Notiz speichert, wessen Gespräch es war. Aus: Jeder sieht nur eigene Notizen und die unerkannter Stimmen. An: Notizen aller Personen können in jedem Gespräch auftauchen."
+          "diary_share": "Jede Notiz speichert, wessen Gespräch es war. Aus: Jeder sieht nur eigene Notizen und die unerkannter Stimmen. An: Notizen aller Personen können in jedem Gespräch auftauchen.",
+          "ephemeral_filter_enabled": "Wenn aktiviert, werden Anfragen und Antworten mit einem der angegebenen Präfixe (z. B. automatische Ansagen oder DJ-Moderationen) weder im Chatverlauf noch im Tagebuch gespeichert und öffnen danach nicht das Mikrofon.",
+          "ephemeral_prefixes": "Kommagetrennte Präfixe am Satzanfang (Standard: [Durchsage], z. B. auch [Durchsage], [DJ]). Ein passendes Präfix am Anfang der Antwort wird vor der Sprachausgabe automatisch entfernt."
         }
       },
       "tools": {

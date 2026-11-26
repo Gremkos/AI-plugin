@@ -583,3 +583,46 @@ DEFAULT_PROMPT_WARMUP = True
 CONF_ADMIN_MCP_ENABLED = "admin_mcp_enabled"
 CONF_ADMIN_PERSON = "admin_person"
 DEFAULT_ADMIN_MCP_ENABLED = False
+
+# Ephemeral prefix filter: exclude turns starting with configured prefixes
+# (e.g. "[Durchsage]") from conversation history and diary.
+CONF_EPHEMERAL_FILTER_ENABLED = "ephemeral_filter_enabled"
+DEFAULT_EPHEMERAL_FILTER_ENABLED = False
+CONF_EPHEMERAL_PREFIXES = "ephemeral_prefixes"
+DEFAULT_EPHEMERAL_PREFIXES = "[Durchsage]"
+
+
+def ephemeral_prefixes(options) -> tuple[str, ...]:
+    """Return configured non-empty ephemeral prefixes (comma-separated)."""
+    if not options or not options.get(
+        CONF_EPHEMERAL_FILTER_ENABLED, DEFAULT_EPHEMERAL_FILTER_ENABLED
+    ):
+        return ()
+    raw = options.get(CONF_EPHEMERAL_PREFIXES, DEFAULT_EPHEMERAL_PREFIXES)
+    if not raw:
+        return ()
+    return tuple(p.strip() for p in str(raw).split(",") if p.strip())
+
+
+def matches_ephemeral_prefix(text: str | None, options) -> bool:
+    """True when text begins with any configured ephemeral prefix (case-insensitive)."""
+    if not text:
+        return False
+    lowered = text.lstrip().casefold()
+    return any(
+        lowered.startswith(prefix.casefold())
+        for prefix in ephemeral_prefixes(options)
+    )
+
+
+def strip_ephemeral_prefix(text: str, options) -> str:
+    """Strip a leading configured ephemeral prefix from text, if present."""
+    if not text:
+        return text
+    stripped = text.lstrip()
+    lowered = stripped.casefold()
+    for prefix in ephemeral_prefixes(options):
+        if lowered.startswith(prefix.casefold()):
+            rest = stripped[len(prefix):].lstrip(" :\t\n-")
+            return rest or text
+    return text

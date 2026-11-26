@@ -40,6 +40,8 @@ from .const import (
     FOLLOW_UP_AUTO,
     ends_with_question,
     follow_up_mode,
+    matches_ephemeral_prefix,
+    strip_ephemeral_prefix,
 )
 from .exceptions import OrchestratorError
 from .i18n import L
@@ -534,9 +536,12 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             or ulid_util.ulid_now()
         )
         can_duck = _should_auto_duck(user_input)
+        ephemeral_input = matches_ephemeral_prefix(
+            user_input.text, self._entry.options
+        )
 
         # Optional self-echo guard (controlled via CONF_SELF_ECHO_FILTER)
-        if self._check_and_clear_echo(user_input, conversation_id):
+        if not ephemeral_input and self._check_and_clear_echo(user_input, conversation_id):
             _LOGGER.info(
                 "AI Plugin: ignored self-echo on %s (text=%r)",
                 getattr(user_input, "satellite_id", None) or user_input.device_id,
@@ -600,7 +605,9 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
         # chunked delta streaming so the pipeline closes cleanly.
         is_satellite = bool(getattr(user_input, "satellite_id", None))
         stream_capable = (
-            hasattr(chat_log, "async_add_delta_content_stream") and not is_satellite
+            hasattr(chat_log, "async_add_delta_content_stream")
+            and not is_satellite
+            and not ephemeral_input
         )
         try:
             reply = await self._orchestrator.async_process(
@@ -632,21 +639,28 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("AI Plugin: delta consumer failed", exc_info=True)
 
+        is_ephemeral = ephemeral_input or matches_ephemeral_prefix(
+            reply, self._entry.options
+        )
+        if is_ephemeral:
+            reply = strip_ephemeral_prefix(reply, self._entry.options)
+
         intent_response = intent.IntentResponse(language=user_input.language)
         intent_response.async_set_speech(reply)
         mode = follow_up_mode(self._entry.options)
-        if self._is_feedback_loop_device(user_input):
+        if is_ephemeral or self._is_feedback_loop_device(user_input):
             continue_conversation = False
         elif mode == FOLLOW_UP_AUTO:
             continue_conversation = ends_with_question(reply)
         else:
             continue_conversation = mode == FOLLOW_UP_ALWAYS
 
-        self._remember_reply(
-            getattr(user_input, "satellite_id", None) or user_input.device_id,
-            reply,
-        )
-        self._remember_reply(conversation_id, reply)
+        if not is_ephemeral:
+            self._remember_reply(
+                getattr(user_input, "satellite_id", None) or user_input.device_id,
+                reply,
+            )
+            self._remember_reply(conversation_id, reply)
 
         async_update_assist_meta(self.hass, emotion=_extract_emotion(reply))
         player_entity = _device_media_player(self.hass, user_input.device_id)

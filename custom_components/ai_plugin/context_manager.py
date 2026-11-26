@@ -241,6 +241,7 @@ class ContextManager:
         conv_id: str,
         system_prompt: str,
         tool_tokens: int | None = None,
+        extra_messages: list[dict[str, str]] | None = None,
     ) -> list[dict[str, str]]:
         """Return messages ready to send to the LLM.
 
@@ -249,6 +250,8 @@ class ContextManager:
         """
         async with self._get_lock(conv_id):
             history = list(self._history.get(conv_id, []))
+        if extra_messages:
+            history = [*history, *extra_messages]
 
         return [
             {"role": "system", "content": system_prompt},
