@@ -128,48 +128,64 @@ class VoiceIDSpeechToText(stt.SpeechToTextEntity):
     ) -> stt.SpeechResult:
         """Process an audio stream."""
         async_set_assist_status(self.hass, "listening")
-        engine = self._wrapped()
-        if engine is None:
-            _LOGGER.error(
-                "AI Plugin voice ID: wrapped speech-to-text engine %s is not available",
-                self.wrapped_engine,
+        handover_to_conv = False
+        try:
+            engine = self._wrapped()
+            if engine is None:
+                _LOGGER.error(
+                    "AI Plugin voice ID: wrapped speech-to-text engine %s is not available",
+                    self.wrapped_engine,
+                )
+                return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
+            keep = _is_pcm16_mono_16k(metadata)
+            early = keep and self._manager.early_fingerprint_wanted()
+            captured = bytearray()
+            fingerprint = None
+            checked = 0
+
+            def _start(reason: str) -> None:
+                nonlocal fingerprint
+                _LOGGER.debug(
+                    "AI Plugin voice ID: fingerprint started %s (%.1f s of audio)",
+                    reason, len(captured) / (2 * SAMPLE_RATE),
+                )
+                fingerprint = self._manager.start_fingerprint(bytes(captured))
+
+            async def _tee():
+                nonlocal checked
+                async for chunk in stream:
+                    if keep and len(captured) < MAX_PCM_BYTES:
+                        captured.extend(chunk[: MAX_PCM_BYTES - len(captured)])
+                        if (
+                            early
+                            and fingerprint is None
+                            and len(captured) - checked >= _SPEECH_CHECK_BYTES
+                        ):
+                            checked = len(captured)
+                            if _holds_full_speech(captured):
+                                _start("while speaking")
+                    yield chunk
+                # End of speech: start before the transcript comes back.
+                if early and fingerprint is None and captured:
+                    _start("at end of speech")
+
+            # The wrapped engine's own result goes back untouched, errors
+            # included: this entity must never make speech-to-text worse.
+            result = await engine.async_process_audio_stream(metadata, _tee())
+            has_text = bool(
+                result.result == stt.SpeechResultState.SUCCESS
+                and result.text
+                and result.text.strip()
             )
-            return stt.SpeechResult(None, stt.SpeechResultState.ERROR)
-        keep = _is_pcm16_mono_16k(metadata)
-        early = keep and self._manager.early_fingerprint_wanted()
-        captured = bytearray()
-        fingerprint = None
-        checked = 0
-
-        def _start(reason: str) -> None:
-            nonlocal fingerprint
-            _LOGGER.debug(
-                "AI Plugin voice ID: fingerprint started %s (%.1f s of audio)",
-                reason, len(captured) / (2 * SAMPLE_RATE),
-            )
-            fingerprint = self._manager.start_fingerprint(bytes(captured))
-
-        async def _tee():
-            nonlocal checked
-            async for chunk in stream:
-                if keep and len(captured) < MAX_PCM_BYTES:
-                    captured.extend(chunk[: MAX_PCM_BYTES - len(captured)])
-                    if (
-                        early
-                        and fingerprint is None
-                        and len(captured) - checked >= _SPEECH_CHECK_BYTES
-                    ):
-                        checked = len(captured)
-                        if _holds_full_speech(captured):
-                            _start("while speaking")
-                yield chunk
-            # End of speech: start before the transcript comes back.
-            if early and fingerprint is None and captured:
-                _start("at end of speech")
-
-        # The wrapped engine's own result goes back untouched, errors
-        # included: this entity must never make speech-to-text worse.
-        result = await engine.async_process_audio_stream(metadata, _tee())
-        if keep and captured and result.text and result.result == stt.SpeechResultState.SUCCESS:
-            self._manager.buffers.put(result.text, bytes(captured), fingerprint)
-        return result
+            if has_text:
+                handover_to_conv = True
+                if keep and captured:
+                    self._manager.buffers.put(result.text, bytes(captured), fingerprint)
+            return result
+        finally:
+            if not handover_to_conv:
+                # Empty transcript, STT error, or cancelled turn -> reset immediately.
+                async_set_assist_status(self.hass, "idle")
+            else:
+                # Short safety fallback in case a local HA intent bypasses conversation.py.
+                async_set_assist_status(self.hass, "listening", auto_idle_delay=5.0)

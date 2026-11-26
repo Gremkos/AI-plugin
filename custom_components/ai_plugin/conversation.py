@@ -311,6 +311,9 @@ def async_set_assist_status(
             hass, [watch_media_player], _on_player_change
         )
 
+    if status == "listening" and auto_idle_delay is None:
+        auto_idle_delay = 25.0
+
     if auto_idle_delay is not None and auto_idle_delay > 0:
         loop = asyncio.get_running_loop()
         domain_data["_status_timer"] = loop.call_later(
@@ -618,6 +621,9 @@ class AIPluginConversationEntity(conversation.ConversationEntity):
             _LOGGER.error("AI Plugin error processing message: %s", exc)
             _lang = (user_input.language or "en").split("-")[0].lower()
             reply = f"{L.template('err_process', _lang)} ({exc})"
+        except BaseException:
+            async_set_assist_status(self.hass, "idle")
+            raise
         finally:
             if consumer is not None:
                 queue.put_nowait(None)
