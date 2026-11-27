@@ -451,8 +451,8 @@ class TimerToolsMixin:
             dur_text = _fmt_spoken_duration(total_s, lang)
             label = str(args.get("name") or "").strip()
             if label:
-                return L.template("timer_started_named", lang, label=label, duration=dur_text)
-            return L.template("timer_started", lang, duration=dur_text)
+                return L.template("timer_started_named", lang, label=label, time=dur_text)
+            return L.template("timer_started", lang, time=dur_text)
 
         manager = self._hass.data.get(_TIMER_DATA_KEY)
         if manager is None:
@@ -483,15 +483,15 @@ class TimerToolsMixin:
                 lbl = _clean_spoken_timer_name(t.name or "")
                 if t.is_active:
                     lines.append(
-                        L.template("timer_status_one", lang, label=lbl, duration=dur_text)
+                        L.template("timer_status_one", lang, label=lbl, time=dur_text)
                         if lbl
-                        else L.template("timer_status_unnamed", lang, duration=dur_text)
+                        else L.template("timer_status_unnamed", lang, time=dur_text)
                     )
                 else:
                     lines.append(
-                        L.template("timer_status_paused", lang, label=lbl, duration=dur_text)
+                        L.template("timer_status_paused", lang, label=lbl, time=dur_text)
                         if lbl
-                        else L.template("timer_status_unnamed_paused", lang, duration=dur_text)
+                        else L.template("timer_status_unnamed_paused", lang, time=dur_text)
                     )
             return " ".join(lines)
 
@@ -558,9 +558,9 @@ class TimerToolsMixin:
             delta_text = _fmt_spoken_duration(delta, lang)
             left_text = _fmt_spoken_duration(int(round(timer.seconds_left)), lang)
             return (
-                L.template(key_named, lang, label=lbl, delta=delta_text, duration=left_text)
+                L.template(key_named, lang, label=lbl, val=delta_text, time=left_text)
                 if lbl
-                else L.template(key_plain, lang, delta=delta_text, duration=left_text)
+                else L.template(key_plain, lang, val=delta_text, time=left_text)
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("AI Plugin: timer shortcut failed, falling back to LLM", exc_info=True)
