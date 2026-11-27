@@ -37,6 +37,7 @@ from ..const import (
     CONF_TOOL_BROADCAST,
     CONF_TOOL_FIND_PHONE,
     CONF_TOOL_MESSAGES,
+    CONF_TOOL_TIMERS,
     CONF_VOICE_MODE,
     CONF_WEB_SEARCH_ENABLED,
     DEFAULT_ADMIN_MCP_ENABLED,
@@ -809,6 +810,23 @@ class Orchestrator(
                 return refused
 
             if is_admin and not ephemeral_input:
+                if (
+                    self._ha_local is not None
+                    and self._feature_on(CONF_TOOL_TIMERS)
+                ):
+                    try:
+                        timer_reply = await self._ha_local.async_try_timer_shortcut(
+                            message,
+                            device_id=device_id,
+                            language=language,
+                            announce_agent_id=self._timer_announce_agent_id(),
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("AI Plugin: timer shortcut raised", exc_info=True)
+                        timer_reply = None
+                    if timer_reply:
+                        await self._context_mgr.remove_last_turn(conversation_id)
+                        return timer_reply
                 if (
                     not later
                     and self._ha_local is not None
