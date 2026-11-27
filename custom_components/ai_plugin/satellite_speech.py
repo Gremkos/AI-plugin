@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,12 +24,61 @@ _POLL_S = 0.2
 # Wait at most this long for the sentence to start, then to finish.
 _START_WAIT_S = 4.0
 _PLAY_WAIT_S = 10.0
+_CHIME_WAIT_S = 3.0
 # A blocking play call that took at least this long has waited for the
 # playback itself (Music Assistant does). Its call returns about 2 s after
 # the sentence ended (measured 2026-10-26: playing 48.97-51.74, call back at
 # 53.66), so a speaker seen playing and then quiet again releases the
 # reply first; a speaker never seen playing falls back on the call.
 _BLOCKED_THROUGH_S = 1.0
+_AUDIO_SUFFIXES = frozenset({".flac", ".mp3", ".wav", ".ogg", ".m4a", ".aac"})
+_MIME_BY_SUFFIX = {
+    ".flac": "audio/flac",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+}
+
+
+def discover_timer_chimes(hass) -> list[dict[str, str]]:
+    """Scan HA's local media folders for short audio files usable as chimes."""
+    roots: list[tuple[str, Path]] = []
+    media_dirs = getattr(getattr(hass, "config", None), "media_dirs", None) or {}
+    if isinstance(media_dirs, dict) and media_dirs:
+        for source_name, dir_path in media_dirs.items():
+            roots.append((str(source_name), Path(dir_path)))
+    else:
+        default_media = Path("/media")
+        if default_media.is_dir():
+            roots.append(("local", default_media))
+
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for source_name, root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            for path in sorted(root.rglob("*")):
+                if not path.is_file() or path.suffix.lower() not in _AUDIO_SUFFIXES:
+                    continue
+                rel = path.relative_to(root).as_posix()
+                media_id = f"media-source://media_source/{source_name}/{rel}"
+                if media_id in seen:
+                    continue
+                seen.add(media_id)
+                found.append({"value": media_id, "label": rel})
+                if len(found) >= 100:
+                    return found
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("AI Plugin: scanning media dir %s failed", root, exc_info=True)
+    return found
+
+
+def _chime_content_type(media_id: str) -> str:
+    suffix = Path(media_id.split("?", 1)[0]).suffix.lower()
+    return _MIME_BY_SUFFIX.get(suffix, "music")
 
 
 def satellite_entity(hass, device_id: str | None) -> str | None:
@@ -188,7 +238,7 @@ def _device_media_player(hass, device_id: str) -> str | None:
     return None
 
 
-async def _wait_until_played(hass, speaker: str) -> None:
+async def _wait_until_played(hass, speaker: str, max_play_s: float = _PLAY_WAIT_S) -> None:
     """Return once ``speaker`` has played and gone quiet (bounded)."""
 
     def _busy() -> bool:
@@ -200,12 +250,17 @@ async def _wait_until_played(hass, speaker: str) -> None:
         await asyncio.sleep(_POLL_S)
         waited += _POLL_S
     waited = 0.0
-    while _busy() and waited < _PLAY_WAIT_S:
+    while _busy() and waited < max_play_s:
         await asyncio.sleep(_POLL_S)
         waited += _POLL_S
 
 
-async def _wait_for_call_or_playback(hass, task: asyncio.Future, speaker: str | None) -> bool:
+async def _wait_for_call_or_playback(
+    hass,
+    task: asyncio.Future,
+    speaker: str | None,
+    max_wait_s: float = _START_WAIT_S + _PLAY_WAIT_S,
+) -> bool:
     """Wait (bounded) for the play call to return or, sooner, for ``speaker``
     to play and go quiet again. True when the speaker's own playback ended
     first; the call is then left to finish in the background."""
@@ -218,7 +273,7 @@ async def _wait_for_call_or_playback(hass, task: asyncio.Future, speaker: str | 
     # sentence ends, and a pause around it would look like the end.
     watch = not _busy()
     waited, seen_playing = 0.0, False
-    while not task.done() and waited < _START_WAIT_S + _PLAY_WAIT_S:
+    while not task.done() and waited < max_wait_s:
         if watch:
             if _busy():
                 seen_playing = True
@@ -229,18 +284,50 @@ async def _wait_for_call_or_playback(hass, task: asyncio.Future, speaker: str | 
     return False
 
 
+async def _play_chime_on_speaker(hass, speaker: str, chime_media_id: str) -> None:
+    """Play a short chime sound on a media_player before speaking."""
+    try:
+        call = (
+            "media_player",
+            "play_media",
+            {
+                "entity_id": speaker,
+                "media_content_id": chime_media_id,
+                "media_content_type": _chime_content_type(chime_media_id),
+                "announce": True,
+            },
+        )
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        task = asyncio.ensure_future(hass.services.async_call(*call, blocking=True))
+        task.add_done_callback(_log_play_failure)
+        played = await _wait_for_call_or_playback(
+            hass, task, speaker, max_wait_s=_CHIME_WAIT_S
+        )
+        took = loop.time() - started
+        if not played and took < 0.8:
+            await asyncio.sleep(0.9)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("AI Plugin: chime playback on %s failed", speaker, exc_info=True)
+
+
 async def async_announce(
-    hass, device_id: str, template_key: str, lang: str, **fmt: object
+    hass,
+    device_id: str,
+    template_key: str,
+    lang: str,
+    *,
+    chime: str = "",
+    **fmt: object,
 ) -> str | None:
     """Speak the i18n template ``template_key`` on the device's satellite
     without waiting for it to play; returns the sentence, or None when
     there is nowhere to play it. Never raises.
 
-    The voice is the satellite's Assist pipeline in ``lang`` if it has one,
-    else its main pipeline, and the sentence is written in that pipeline's
-    language, so text and voice never disagree. Text alone would be read by
-    the TTS engine's own default voice: HA Cloud's here was German and read
-    "Timer is up." with a German accent.
+    ``chime`` may be:
+      - ""         : no extra chime
+      - "default"  : use the satellite's built-in preannounce sound
+      - media-source://... or URL : play custom chime before speaking
     """
     try:
         from .i18n import L  # noqa: PLC0415
@@ -251,21 +338,52 @@ async def async_announce(
         pipeline = satellite_pipeline(hass, device_id, lang)
         text = L.template(template_key, pipeline_lang(pipeline, lang), **fmt)
         url = speech_url(hass, text, pipeline)
-        if mic2mp_for(hass, satellite) is not None:
+        chime_val = (chime or "").strip()
+        routed = mic2mp_for(hass, satellite)
+
+        if routed is not None:
+            speaker = getattr(routed, "media_player_entity_id", None)
+            if chime_val and chime_val != "default" and speaker:
+                await _play_chime_on_speaker(hass, speaker, chime_val)
             data = {"satellite_entity_id": satellite}
             if url:
                 data["audio_url"] = url
             else:
                 data["message"] = text
-            call = ("mic_to_mediaplayer", "announce", data)
-        else:
-            data = {"entity_id": satellite, "message": text}
-            if url:
-                from homeassistant.helpers.network import get_url  # noqa: PLC0415
+            await hass.services.async_call(
+                "mic_to_mediaplayer", "announce", data, blocking=False
+            )
+            return text
 
-                data["media_id"] = f"{get_url(hass)}{url}" if url.startswith("/") else url
-            call = ("assist_satellite", "announce", data)
-        await hass.services.async_call(*call, blocking=False)
+        data: dict[str, object] = {"entity_id": satellite, "message": text}
+        if url:
+            from homeassistant.helpers.network import get_url  # noqa: PLC0415
+
+            data["media_id"] = f"{get_url(hass)}{url}" if url.startswith("/") else url
+
+        if chime_val == "default":
+            data["preannounce"] = True
+        elif chime_val:
+            data["preannounce"] = True
+            data["preannounce_media_id"] = chime_val
+
+        try:
+            await hass.services.async_call(
+                "assist_satellite", "announce", data, blocking=False
+            )
+        except Exception:  # noqa: BLE001
+            # Fallback if the satellite/HA version rejects preannounce_media_id.
+            if "preannounce_media_id" not in data and "preannounce" not in data:
+                raise
+            data.pop("preannounce_media_id", None)
+            data.pop("preannounce", None)
+            if chime_val and chime_val != "default":
+                speaker = _device_media_player(hass, device_id)
+                if speaker:
+                    await _play_chime_on_speaker(hass, speaker, chime_val)
+            await hass.services.async_call(
+                "assist_satellite", "announce", data, blocking=False
+            )
         return text
     except Exception:  # noqa: BLE001
         _LOGGER.exception("AI Plugin: announcement on %s failed", device_id)

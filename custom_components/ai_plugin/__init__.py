@@ -15,6 +15,7 @@ from .const import (
     DOMAIN,
 )
 from .music_ducking import async_setup_listening_duck
+from .timer_entities import async_setup_timer_entities
 from .diary import DiaryManager
 from .scheduler import Scheduler
 from .tools.memory import MemoryTool
@@ -82,6 +83,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Quieter music while any satellite listens.
     entry.async_on_unload(async_setup_listening_duck(hass))
+
+    # Mirror active voice timers onto timer.ai_plugin_1..3 for dashboards.
+    entry.async_on_unload(async_setup_timer_entities(hass))
 
     # Reload the entry when options change so Orchestrator picks up new settings.
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

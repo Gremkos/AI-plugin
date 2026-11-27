@@ -45,7 +45,9 @@ from ..const import (
     CONF_EPHEMERAL_FILTER_ENABLED,
     CONF_EPHEMERAL_PREFIXES,
     DEFAULT_EPHEMERAL_PREFIXES,
+    CONF_TIMER_ANNOUNCE_CHIME,
 )
+from ..satellite_speech import discover_timer_chimes
 from ..exceptions import CannotConnect
 from ..option_values import merge_advanced_options
 from ..providers.openai_compat import (
@@ -315,14 +317,20 @@ class AIPluginOptionsFlow(MCPServerStepsMixin, VoiceIDStepsMixin, config_entries
             self._options[CONF_AUDIO_INPUT_ENABLED] = bool(
                 user_input.get(CONF_AUDIO_INPUT_ENABLED, False)
             )
+            self._options[CONF_TIMER_ANNOUNCE_CHIME] = str(
+                user_input.get(CONF_TIMER_ANNOUNCE_CHIME, "") or ""
+            ).strip()
             self.hass.data.setdefault(DOMAIN, {})["auto_ducking"] = self._options[
                 CONF_AUTO_DUCKING
             ]
             return self.async_create_entry(title="", data=self._options)
 
+        chime_options = await self.hass.async_add_executor_job(
+            discover_timer_chimes, self.hass
+        )
         return self.async_show_form(
             step_id="vision_audio",
-            data_schema=_vision_audio_schema(self._options),
+            data_schema=_vision_audio_schema(self._options, chime_options),
         )
 
     # ── 5. Web search ────────────────────────────────────────────────────────

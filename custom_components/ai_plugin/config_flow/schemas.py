@@ -90,6 +90,9 @@ from ..const import (
     CONF_EPHEMERAL_PREFIXES,
     DEFAULT_EPHEMERAL_FILTER_ENABLED,
     DEFAULT_EPHEMERAL_PREFIXES,
+    CONF_TIMER_ANNOUNCE_CHIME,
+    DEFAULT_TIMER_ANNOUNCE_CHIME,
+    TIMER_CHIME_DEFAULT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -315,8 +318,22 @@ def _llm_settings_schema(current: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _vision_audio_schema(current: dict[str, Any]) -> vol.Schema:
+def _vision_audio_schema(
+    current: dict[str, Any],
+    chime_options: list[dict[str, str]] | None = None,
+) -> vol.Schema:
     """Voice behavior, audio ducking, camera vision, and multimodal audio input."""
+    chime_choices: list[dict[str, str]] = [
+        {"value": "", "label": "No chime (speech only)"},
+        {"value": TIMER_CHIME_DEFAULT, "label": "Satellite default chime (preannounce)"},
+        *(chime_options or []),
+    ]
+    saved_chime = str(
+        current.get(CONF_TIMER_ANNOUNCE_CHIME, DEFAULT_TIMER_ANNOUNCE_CHIME) or ""
+    ).strip()
+    if saved_chime and all(opt["value"] != saved_chime for opt in chime_choices):
+        chime_choices.append({"value": saved_chime, "label": saved_chime})
+
     return vol.Schema(
         {
             vol.Optional(
@@ -367,6 +384,16 @@ def _vision_audio_schema(current: dict[str, Any]) -> vol.Schema:
                 CONF_TIMER_ANNOUNCE,
                 default=current.get(CONF_TIMER_ANNOUNCE, DEFAULT_TIMER_ANNOUNCE),
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_TIMER_ANNOUNCE_CHIME,
+                default=saved_chime,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=chime_choices,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(
                 CONF_FEEDBACK_LOOP_DEVICES,
                 description={"suggested_value": current.get(CONF_FEEDBACK_LOOP_DEVICES)},

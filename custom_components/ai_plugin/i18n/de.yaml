@@ -34,8 +34,8 @@ templates:
   tool_wait:         "Einen Moment."
 
   time_is:           "Es ist {time} Uhr."
-  timer_done:        "Der Timer ist abgelaufen."
-  timer_done_named:  "Der Timer {label} ist abgelaufen."
+  timer_done:        "Der Timer ist fertig."
+  timer_done_named:  "Der Timer {label} ist fertig."
   phone_ringing:       "Ich lasse dein Handy klingeln."
   phone_ringing_named: "Ich lasse das Handy von {name} klingeln."
   phone_seen_at:       "Laut Home Assistant war es zuletzt bei {place}."

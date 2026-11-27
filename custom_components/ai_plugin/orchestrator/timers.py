@@ -9,12 +9,26 @@ through a media player.
 from __future__ import annotations
 
 import logging
+import re
 
 from homeassistant.helpers import entity_registry as er
 
-from ..const import CONF_TIMER_ANNOUNCE, DEFAULT_TIMER_ANNOUNCE, DOMAIN
+from ..const import (
+    CONF_TIMER_ANNOUNCE,
+    CONF_TIMER_ANNOUNCE_CHIME,
+    DEFAULT_TIMER_ANNOUNCE,
+    DEFAULT_TIMER_ANNOUNCE_CHIME,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
+_TRAILING_TIMER_WORD_RE = re.compile(r"[\s\-]+(?:timer|wecker|countdown)$", re.IGNORECASE)
+
+
+def _clean_timer_label(raw: str) -> str:
+    """Clean trailing 'Timer' so 'Pizza-Timer' does not become 'Timer Pizza-Timer'."""
+    cleaned = _TRAILING_TIMER_WORD_RE.sub("", (raw or "").strip()).strip()
+    return cleaned or (raw or "").strip()
 
 
 class TimerAnnounceMixin:
@@ -44,38 +58,40 @@ class TimerAnnounceMixin:
     ) -> str:
         """Announce an expired timer on the satellite's speaker path.
 
-        How announce-mode timers work, end to end:
-          1. With the ``timer_announce`` option on, ``start_timer`` attaches
-             a ``conversation_command`` ("AI_PLUGIN_TIMER_DONE <name>") and
-             this agent's id to the HA timer it creates.
-          2. HA's own TimerManager does all the scheduling (cancel, pause,
-             "add two minutes" — everything stays one HA-managed timer).
-             Because a conversation_command is set, HA never notifies the
-             device (no on-device ring/LEDs) and doesn't require the device
-             to support timers at all.
-          3. At expiry, HA calls this agent back with the sentinel text and
-             the original device_id. ``async_process`` routes it here —
-             before shortcuts and history, since it's not a user utterance.
-          4. This method speaks a localized announcement in the voice of the
-             satellite's Assist pipeline, like every reply there: through
-             ``mic_to_mediaplayer.announce`` where that routes the satellite
-             to another speaker, else HA's native ``assist_satellite.announce``.
-
         Returns "" — the announcement IS the reply; nothing is spoken twice.
         """
         from .. import satellite_speech  # noqa: PLC0415
         from ..const import TIMER_DONE_SENTINEL  # noqa: PLC0415
+        from ..timer_entities import sync_timer_states  # noqa: PLC0415
 
-        timer_name = message[len(TIMER_DONE_SENTINEL):].strip()
+        if self._hass is not None:
+            sync_timer_states(self._hass)
+
+        timer_name = _clean_timer_label(message[len(TIMER_DONE_SENTINEL):].strip())
+        chime = str(
+            self._entry.options.get(
+                CONF_TIMER_ANNOUNCE_CHIME, DEFAULT_TIMER_ANNOUNCE_CHIME
+            )
+            or ""
+        ).strip()
         text = None
         if self._hass is not None and device_id:
             if timer_name:
                 text = await satellite_speech.async_announce(
-                    self._hass, device_id, "timer_done_named", lang, label=timer_name
+                    self._hass,
+                    device_id,
+                    "timer_done_named",
+                    lang,
+                    chime=chime,
+                    label=timer_name,
                 )
             else:
                 text = await satellite_speech.async_announce(
-                    self._hass, device_id, "timer_done", lang
+                    self._hass,
+                    device_id,
+                    "timer_done",
+                    lang,
+                    chime=chime,
                 )
         if text is None:
             _LOGGER.warning(

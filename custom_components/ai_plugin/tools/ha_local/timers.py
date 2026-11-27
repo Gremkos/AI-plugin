@@ -18,8 +18,8 @@ from homeassistant.helpers import (
 )
 
 from .exposure import _TIMER_DATA_KEY
-
 from .formatting import _s
+from ...timer_entities import sync_timer_states
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +52,6 @@ _DURATION_PHRASE_RE = re.compile(
     r"(?:hours?|hrs?|stunden?|minutes?|mins?|minuten?|seconds?|secs?|sekunden?))*",
     re.IGNORECASE,
 )
-
 
 
 def _parse_utterance_duration(text: str) -> dict[str, int] | None:
@@ -88,7 +87,6 @@ def _parse_utterance_duration(text: str) -> dict[str, int] | None:
     return out or None
 
 
-
 _TIMER_WORD_SUFFIX_RE = re.compile(r"[\s\-]*(?:timer|wecker|countdown)$")
 
 # "Cancel all my timers", "Alle Timer abbrechen". Narrower than the lights' own
@@ -101,7 +99,6 @@ _ALL_TIMERS_RE = re.compile(
 )
 
 
-
 def _timer_name_key(name: object) -> str:
     """Comparable timer name: 'Nudel-Timer', 'nudel timer', 'Nudel' → 'nudel'.
 
@@ -109,7 +106,6 @@ def _timer_name_key(name: object) -> str:
     and it then means no name at all.
     """
     return _TIMER_WORD_SUFFIX_RE.sub("", _s(name).strip().casefold()).strip()
-
 
 
 def _fmt_duration(total: int) -> str:
@@ -122,7 +118,6 @@ def _fmt_duration(total: int) -> str:
     if seconds or not parts:
         parts.append(f"{seconds} s")
     return " ".join(parts)
-
 
 
 def _describe_timer(timer: Any) -> str:
@@ -164,6 +159,13 @@ class TimerToolsMixin:
         intent_type = _TIMER_INTENTS.get(tool_name)
         if intent_type is None:
             return f"[Unknown timer tool: {tool_name!r}]"
+
+        if tool_name == "start_timer" and not device_id and announce_agent_id:
+            from ...satellite_speech import announcing_satellites  # noqa: PLC0415
+
+            sats = announcing_satellites(self._hass)
+            if sats:
+                device_id = sats[0]
 
         if tool_name == "start_timer" and not device_id:
             return (
@@ -289,6 +291,8 @@ class TimerToolsMixin:
             _LOGGER.exception("AI Plugin timer intent %s failed", intent_type)
             return f"[{intent_type} error: {exc}]"
 
+        sync_timer_states(self._hass)
+
         speech = ""
         try:
             speech_block = response.speech.get("plain", {}) if response.speech else {}
@@ -329,6 +333,7 @@ class TimerToolsMixin:
         try:
             for timer in timers:
                 manager.cancel_timer(timer.id)
+            sync_timer_states(self._hass)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.exception("AI Plugin cancel all timers failed")
             return f"[cancel_timer error: {exc}]"
@@ -347,7 +352,6 @@ class TimerToolsMixin:
         HassCancelTimer "not found" while the timer was running. So the timers
         are read from the manager and changed by id — which also returns the
         remaining time as text, where the intent's response carries no speech.
-
         """
         manager = self._hass.data.get(_TIMER_DATA_KEY)
         if manager is None:
@@ -404,12 +408,15 @@ class TimerToolsMixin:
             if tool_name == "cancel_timer":
                 left = timer.seconds_left
                 manager.cancel_timer(timer.id)
+                sync_timer_states(self._hass)
                 return f"Cancelled {label} ({_fmt_duration(left)} were left)."
             if tool_name == "pause_timer":
                 manager.pause_timer(timer.id)
+                sync_timer_states(self._hass)
                 return f"Paused {label} with {_fmt_duration(timer.seconds_left)} left."
             if tool_name == "unpause_timer":
                 manager.unpause_timer(timer.id)
+                sync_timer_states(self._hass)
                 return f"Resumed {label}, {_fmt_duration(timer.seconds_left)} left."
 
             delta = (
@@ -428,6 +435,7 @@ class TimerToolsMixin:
             else:
                 manager.remove_time(timer.id, delta)
                 verb = "Removed"
+            sync_timer_states(self._hass)
             return (
                 f"{verb} {_fmt_duration(delta)}; {label} now has "
                 f"{_fmt_duration(timer.seconds_left)} left."

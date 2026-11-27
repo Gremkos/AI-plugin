@@ -38,6 +38,9 @@ CONF_FEEDBACK_LOOP_DEVICES = "feedback_loop_devices"
 # learns about the timer, so on-device ring LEDs/sounds don't fire.
 CONF_TIMER_ANNOUNCE = "timer_announce"
 DEFAULT_TIMER_ANNOUNCE = False
+CONF_TIMER_ANNOUNCE_CHIME = "timer_announce_chime"
+DEFAULT_TIMER_ANNOUNCE_CHIME = ""
+TIMER_CHIME_DEFAULT = "default"
 
 # "Where is my phone": ring a person's phone through the Companion app.
 # Off by default; when on, only phones linked to a person entity can ring.

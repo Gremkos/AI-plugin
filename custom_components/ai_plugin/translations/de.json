@@ -195,6 +195,7 @@
           "auto_ducking": "Aktive Mediaplayer während Sprachinteraktionen leiser stellen",
           "self_echo_filter": "Eigene Antwort auf dem Satelliten ignorieren",
           "timer_announce": "Timer ansagen statt auf dem Gerät klingeln",
+          "timer_announce_chime": "Signalton vor der Timer-Ansage (Chime)",
           "feedback_loop_devices": "Gespräche auf diesen Satelliten immer beenden"
         },
         "data_description": {
@@ -206,6 +207,7 @@
           "auto_ducking": "Regelt die Lautstärke laufender Mediaplayer bei Sprachinteraktionen über Satelliten oder die HA-App automatisch herunter und stellt sie bei Leerlauf (idle) wieder her.",
           "self_echo_filter": "Für Satelliten mit separatem Lautsprecher: Verwirft Spracheingaben, die Teile der gerade gesprochenen Antwort wiederholen, damit keine Endlosschleife entsteht.",
           "timer_announce": "Sprach-Timer werden bei Ablauf über den Mediaplayer (oder assist_satellite.announce) angesagt, statt auf dem Satelliten zu klingeln.",
+          "timer_announce_chime": "Optionaler Gong aus deinem Home-Assistant-Medienordner (/media), der direkt vor der Timer-Ansage abgespielt wird (oder der Standardton des Satelliten).",
           "feedback_loop_devices": "Satelliten, deren Sprachausgabe über einen separaten Lautsprecher läuft und sich selbst wieder hören. Gespräche auf diesen Geräten enden immer nach einer Runde."
         }
       },
