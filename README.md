@@ -1,53 +1,236 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/bigbabol1/AI-plugin/main/custom_components/ai_plugin/brand/icon@2x.png" alt="AI Plugin" width="128" height="128">
+  <img src="https://raw.githubusercontent.com/Gremkos/AI-plugin/main/custom_components/ai_plugin/brand/icon@2x.png" alt="AI Plugin" width="128" height="128">
 </p>
 
-<h1 align="center">AI Plugin for Home Assistant</h1>
+<h1 align="center">AI Plugin for Home Assistant (Gremkos Fork)</h1>
 
 <p align="center">
-  <b>A voice-first conversation agent for Home Assistant, built to run well on local LLMs and modest hardware.</b>
+  <b>A voice-first conversation agent for Home Assistant, built for local LLMs — extended with Admin-MCP access control, camera vision, Jinja2 To-do prompt injection, offline Assist fallback, ephemeral announcement filtering, and dashboard-ready live timers.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/bigbabol1/AI-plugin/releases/latest"><img src="https://img.shields.io/github/v/release/bigbabol1/AI-plugin?style=flat-square&label=release" alt="Latest release"></a>
+  <a href="https://github.com/Gremkos/AI-plugin/commits/main"><img src="https://img.shields.io/github/last-commit/Gremkos/AI-plugin?style=flat-square&label=last%20commit" alt="Last commit"></a>
   <a href="https://hacs.xyz"><img src="https://img.shields.io/badge/HACS-custom-41BDF5?style=flat-square" alt="HACS custom repository"></a>
   <img src="https://img.shields.io/badge/Home%20Assistant-2025.7%2B-18BCF2?style=flat-square&logo=home-assistant&logoColor=white" alt="Home Assistant 2025.7 or newer">
-  <a href="https://github.com/bigbabol1/AI-plugin/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/bigbabol1/AI-plugin/test.yml?branch=main&style=flat-square&label=tests" alt="Tests"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue?style=flat-square" alt="License: PolyForm Noncommercial 1.0.0"></a>
 </p>
 
 <p align="center">
+  <a href="#whats-new-in-this-fork">What's new</a> ·
   <a href="#quick-start">Quick start</a> ·
-  <a href="#choosing-a-model">Choosing a model</a> ·
-  <a href="#features-in-depth">Features</a> ·
+  <a href="#fork-features-in-detail">Fork features</a> ·
+  <a href="#entities--services-added-in-this-fork">Entities &amp; Services</a> ·
+  <a href="#original-features--documentation-upstream">Original docs</a> ·
   <a href="#configuration-reference">Configuration</a> ·
-  <a href="#troubleshooting">Troubleshooting</a> ·
-  <a href="CHANGELOG.md">Changelog</a>
+  <a href="#troubleshooting">Troubleshooting</a>
 </p>
 
 ---
 
-AI Plugin makes any OpenAI-compatible model the **Assist conversation agent** for your home. That includes Ollama, llama.cpp, LM Studio, OpenAI and xAI. It handles device control, sensor questions, timers, web search and memory, by voice or in text.
+> [!NOTE]
+> **Based on the original project by [@bigbabol1](https://github.com/bigbabol1/AI-plugin):**
+> This repository is an actively maintained custom fork of [**bigbabol1/AI-plugin**](https://github.com/bigbabol1/AI-plugin). Huge thanks to [@bigbabol1](https://github.com/bigbabol1) for creating the core architecture, voice pipeline, local Voice-ID, conversation diary, and benchmark suite. The full original documentation is preserved further down in collapsible sections so everything stays in one place.
 
-It is designed around a constraint most agents ignore: **a 7–12B model on an 8 GB GPU**. Common commands skip the LLM entirely. The prompt is kept stable so Ollama can reuse its cache. Replies start speaking after the first sentence. When a model claims it did something it never did, the plugin catches it.
+AI Plugin makes any OpenAI-compatible or Ollama model the **Assist conversation agent** for your home — including Ollama, custom local FastAPI/memory proxies, llama.cpp, LM Studio, OpenAI, and xAI. It handles device control, sensor questions, timers, camera vision, web search, and memory by voice or in text.
 
-## Highlights
+It is designed around a constraint most agents ignore: **a 7–12B model on modest local hardware (8–16 GB VRAM)**. Common commands skip the LLM entirely, prompts stay prefix-cache stable, and strict guardrails prevent hallucinated actions.
+
+## What's new in this fork
+
+Everything added or refined in **`Gremkos/AI-plugin`** on top of upstream:
+
+- **🔐 Admin-MCP mode & stricter Voice-ID**
+  - Select authorized admin person(s) under **MCP Servers** so privileged smart-home tools and fast-path shortcuts only execute for verified admins while guests remain safely restricted.
+  - Runs local Voice-ID on signed-in Home Assistant Companion App devices whenever an audio clip is buffered.
+  - Clears the signed-in user fallback when Voice-ID does not match, preventing misattributed speaker identities.
+- **📝 Dynamic To-Do Prompt Injector (with Jinja2)**
+  - Configurable toggle under **Tools** to inject active items (including their `description` fields) from a Home Assistant to-do list directly into the prompt as live rules or context.
+  - Supports **Jinja2 templates** inside to-do rules, plus automatic speaker room context and sensor metadata injection.
+- **👁️ Multimodal Camera Vision & Audio Input**
+  - Built-in **`look_at_camera`** vision tool and multimodal attachment pipeline so the assistant can inspect exposed Home Assistant cameras on demand.
+  - Reorganized **Vision, Audio & Voice** options menu with dedicated toggles for camera vision and multimodal audio input.
+- **⏱️ Fast-Path Timers, Dashboard Live Countdowns & Chimes**
+  - **Deterministic timer shortcut (`async_try_timer_shortcut`):** Unambiguous German and English timer commands (*"Nudeln auf fünf Minuten"*, *"Pizza-Timer pausieren"*, *"Alle Timer abbrechen"*, including spoken number words like *"Viertelstunde"* or *"eineinhalb Stunden"*) execute in milliseconds without waking the LLM or cluttering chat history — while intentionally leaving alarms/reminders routed to the assistant.
+  - **Dashboard timer mirroring (`timer.ai_plugin_1` .. `timer.ai_plugin_3`):** Mirrors active HA voice timers onto three stable `timer.*` entities with `finishes_at`, giving Mushroom, Tile, Entity, and `button-card` widgets **live second-by-second browser countdowns** with zero recorder spam, plus `sensor.ai_plugin_timers` and interactive services (`ai_plugin.toggle_timer`, `ai_plugin.cancel_timer`).
+  - **Announcement chime picker:** Dropdown directly beneath *Announce timers* that auto-discovers audio files from Home Assistant's `/media` directory (or uses the satellite's native preannounce sound), strips duplicate *"Timer"* suffixes from spoken names, and adds a satellite fallback when starting announce-mode timers from browser/text chats.
+- **🔇 Ephemeral Announcement Filtering**
+  - Configurable **ephemeral prefixes** (e.g. `[Durchsage]`) so automated notifications, reminders, and announcements bypass conversation history and diary storage while still being spoken cleanly.
+- **🛟 Offline Fallback to Home Assistant Assist**
+  - Automatically falls back to Home Assistant's native Assist intent pipeline whenever the local LLM host is asleep or unreachable, keeping essential smart-home voice commands working 24/7.
+- **📡 Live Assist Status Sensor & Satellite Audio Polish**
+  - Publishes **`sensor.ai_plugin_assist_status`** (`idle` / `listening` / `processing` / `responding`) for tablet avatars, LED indicators, and automations — hardened with `try/finally` STT cleanup and a 25 s auto-idle safety reset so it never gets stuck on `listening` after cancelled or empty transcripts.
+  - Optional **`auto_ducking`** toggle scoped strictly to voice satellite turns, keeping room music ducked across the full conversation with playback-end tracking.
+  - Disables incremental delta streaming on external satellites for reliable TTS playback and wires **`CONF_SELF_ECHO_FILTER`** cleanly so follow-up listening stays active after dropping a self-echo.
+  - Optional toggle for **background voice prompt warmup**.
+- **🇩🇪 Full German UI Translation & Direct HACS Tracking**
+  - Complete German options UI translation (`translations/de.json`) and localized fast-path timer confirmations (`i18n/de.yaml` & `i18n/en.yaml`).
+  - Disabled `zip_release` in `hacs.json` for seamless tracking of the `main` branch via HACS custom repositories.
+
+## Quick start
+
+### Requirements
+
+- Home Assistant **2025.7.0** or newer
+- [HACS](https://hacs.xyz/docs/use/)
+- A reachable OpenAI-compatible or Ollama LLM endpoint:
+
+| Backend | Provider URL | API key |
+|---------|--------------|---------|
+| [Ollama](https://ollama.com) *(recommended)* | `http://<host>:11434/v1` | — |
+| Custom Local Proxy (e.g. FastAPI + Ollama) | `http://<host>:<port>/v1` | — |
+| LM Studio | `http://<host>:1234/v1` | — |
+| llama.cpp server | `http://<host>:8080/v1` | — |
+| OpenAI | `https://api.openai.com/v1` | required |
+| xAI Grok | `https://api.x.ai/v1` | required |
+
+### Install
+
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Gremkos&repository=AI-plugin&category=integration)
+
+1. In **HACS → ⋮ → Custom repositories**, add `https://github.com/Gremkos/AI-plugin` with category **Integration** (or use the button above).
+2. Install **AI Plugin**, then **restart Home Assistant**.
+3. Add the integration:
+
+   [![Open your Home Assistant instance and start setting up AI Plugin.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ai_plugin)
+
+4. Go to **Settings → Voice assistants**, open your assistant, and set **Conversation agent** to *AI Plugin*.
+
+Every setting can be changed later under **Settings → Devices & services → AI Plugin → Configure**.
+
+## Fork features in detail
+
+### Admin-MCP & speaker access control
+
+Under **Configure → MCP Servers**, enable **Admin-MCP mode** and pick one or more authorized Home Assistant **Person** entities:
+- Verified admins (identified via Companion App login or local Voice-ID) get full access to MCP servers, smart-home controls, and fast-path shortcuts.
+- Unrecognized speakers or guests are kept out of privileged admin tools while still being able to chat normally.
+- If Voice-ID is active and fails to match an enrolled voice, any stale signed-in user fallback is cleared automatically.
+
+### Dynamic To-Do Prompt Injector (Jinja2)
+
+Under **Configure → Tools**, enable the **To-do prompt injector** and choose a Home Assistant `todo.*` list:
+- Every open item (summary **and** optional `description` field) is injected into the system prompt on each turn, allowing live rule changes from your dashboard or phone without reloading the integration.
+- **Jinja2 templates** inside to-do items are rendered dynamically before injection, alongside live speaker room context and sensor metadata.
+
+### Camera Vision (`look_at_camera`) & Multimodal Audio
+
+Under **Configure → Vision, Audio & Voice**:
+- **Camera vision** enables the `look_at_camera` tool and multimodal image attachment pipeline. Ask *"Who is at the front door?"* or *"Is the package here?"* and the plugin captures a live snapshot from the matching exposed `camera.*` entity for vision-capable models (such as Gemma 4).
+- **Audio input** forwards multimodal audio attachments directly to compatible backends.
+
+### Fast-Path Timers, Dashboard Countdowns & Chimes
+
+1. **Instant voice control (LLM bypass):** Unambiguous commands such as *"Nudeln auf fünf Minuten"*, *"Pizza-Timer auf 10 Minuten"*, *"Timer pausieren"*, *"Pizza-Timer um 2 Minuten verlängern"*, *"Wie lange läuft der Timer noch?"*, or *"Alle Timer abbrechen"* are handled deterministically in `tools/ha_local/timers.py` without invoking the LLM or cluttering conversation history. Replies use concise localized templates in `i18n/de.yaml` and `i18n/en.yaml` (e.g. *"Nudeln auf 5 Minuten, läuft."*). Alarms and reminders (e.g. *"Weck mich in 1 Stunde"*) are intentionally skipped so they stay routed to your assistant or alarm setup.
+2. **Announce mode + custom chime:** Under **Vision, Audio & Voice**, enable **Announce timers instead of on-device ring** and choose a sound in **Timer announcement chime** — the dropdown automatically scans Home Assistant's `/media` folder (`.flac`, `.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`) and also offers the satellite's built-in preannounce sound. Trailing *"Timer"* suffixes are cleaned so *"Pizza-Timer"* is spoken naturally without repetition.
+3. **Live second-by-second dashboard cards:** Active voice timers are mirrored automatically onto `timer.ai_plugin_1` through `timer.ai_plugin_3` (with `friendly_name`, `duration`, `remaining`, and `finishes_at`) plus `sensor.ai_plugin_timers`. Because they use Home Assistant's native `timer.` domain, the browser renders a smooth live countdown with zero database spam.
+
+<details>
+<summary><b>Example Mushroom Dashboard Card (live countdown + tap to pause / hold to cancel)</b></summary>
+
+<br>
+
+```yaml
+type: vertical-stack
+cards:
+  - type: custom:mushroom-entity-card
+    entity: timer.ai_plugin_1
+    icon_color: amber
+    tap_action:
+      action: perform-action
+      perform_action: ai_plugin.toggle_timer
+      data:
+        entity_id: timer.ai_plugin_1
+    hold_action:
+      action: perform-action
+      perform_action: ai_plugin.cancel_timer
+      data:
+        entity_id: timer.ai_plugin_1
+    visibility:
+      - condition: state
+        entity: timer.ai_plugin_1
+        state_not: idle
+  - type: custom:mushroom-entity-card
+    entity: timer.ai_plugin_2
+    icon_color: amber
+    tap_action:
+      action: perform-action
+      perform_action: ai_plugin.toggle_timer
+      data:
+        entity_id: timer.ai_plugin_2
+    hold_action:
+      action: perform-action
+      perform_action: ai_plugin.cancel_timer
+      data:
+        entity_id: timer.ai_plugin_2
+    visibility:
+      - condition: state
+        entity: timer.ai_plugin_2
+        state_not: idle
+  - type: custom:mushroom-entity-card
+    entity: timer.ai_plugin_3
+    icon_color: amber
+    tap_action:
+      action: perform-action
+      perform_action: ai_plugin.toggle_timer
+      data:
+        entity_id: timer.ai_plugin_3
+    hold_action:
+      action: perform-action
+      perform_action: ai_plugin.cancel_timer
+      data:
+        entity_id: timer.ai_plugin_3
+    visibility:
+      - condition: state
+        entity: timer.ai_plugin_3
+        state_not: idle
+```
+
+</details>
+
+### Ephemeral Message Prefix Filtering
+
+Configure one or more prefixes (comma-separated, e.g. `[Durchsage]`) so automated prompts sent via `conversation.process` (morning alarms, medication reminders, radio/DJ transitions) are processed and spoken normally but **never saved** to conversation history or the diary.
+
+### Offline Fallback to Native Home Assistant Assist
+
+If your local LLM host is shut down, hibernating, or unreachable, the plugin catches the connection failure and transparently hands the turn over to Home Assistant's built-in Assist agent so lights, switches, and basic intents keep working even while your GPU server sleeps.
+
+## Entities & Services added in this fork
+
+| Entity / Service | Purpose |
+|------------------|---------|
+| `sensor.ai_plugin_assist_status` | Live pipeline status (`idle`, `listening`, `processing`, `responding`) with `try/finally` STT cleanup and 25 s auto-idle watchdog. |
+| `timer.ai_plugin_1` .. `timer.ai_plugin_3` | Stable dashboard timer slots mirroring active HA voice timers with live `finishes_at` countdowns. |
+| `sensor.ai_plugin_timers` | Count of active/paused voice timers with structured timer details in attributes. |
+| `ai_plugin.toggle_timer` | Pause or resume a mirrored voice timer from the dashboard (`entity_id`, `slot`, or `timer_id`). |
+| `ai_plugin.cancel_timer` | Cancel a mirrored voice timer from the dashboard (`entity_id`, `slot`, or `timer_id`). |
+
+---
+
+## Original features & documentation (upstream)
+
+All core features from [**bigbabol1/AI-plugin**](https://github.com/bigbabol1/AI-plugin) remain fully intact in this fork. Expand any section below for the complete original reference, benchmarks, and usage details.
+
+<details>
+<summary><b>✨ Core highlights (upstream overview)</b></summary>
+
+<br>
 
 **🎙️ Built for voice**
-- Streaming replies: voice pipelines with streaming TTS start talking after the first sentence.
+- Streaming replies: voice pipelines with streaming TTS start talking after the first sentence *(disabled automatically for external satellites in this fork for cleaner TTS playback)*.
 - Follow-up listening: always, never, or **let the model decide** by asking a question.
 - Self-echo filtering for satellites whose replies play on a separate speaker.
 - First-class voice timers, with an optional announce mode for any speaker.
-- **Alarms, reminders and things to do later**: "Wake me up at 7", "Remind me to take out the trash tomorrow at 6", "Turn off the lights in 30 minutes". They survive a restart.
-- **A conversation lasts 15 minutes** on a satellite (adjustable under Memory), so "and the bedroom?" still knows what it follows.
-- **Calendar entries by voice**: "Put the dentist on my calendar for Friday at 10", and "Delete the dentist on Friday". It asks before removing anything you didn't name.
-- **Doors, windows and blinds**: "Are all windows closed?" reads the sensors, "Close all blinds except the bedroom" leaves the bedroom and the awning alone.
-- **Messages and moving music**: "Tell Anna dinner is ready", "Tell the kitchen…", "Move the music to the bedroom".
-- **Voice recognition** *(optional)*: knows who is speaking, so each person gets their own memory. It runs inside Home Assistant, with no add-on and no cloud.
-- **Find my phone**: "Where is my phone?" rings it loudly, even on silent.
-- **Where people are**: "Where's my wife?", "Is Anna home?", "Who is home?" are answered from Home Assistant's people.
-- **Light colours**: "Make the light warm white" or "turn the lights blue" changes the lights in the room you are in. White shades become a colour temperature.
-- A short "One second." while a slow web look-up runs, so silence never means the question got lost.
+- **Alarms, reminders and things to do later**: *"Wake me up at 7"*, *"Remind me to take out the trash tomorrow at 6"*, *"Turn off the lights in 30 minutes"*. They survive a restart.
+- **A conversation lasts 15 minutes** on a satellite (adjustable under Memory), so *"and the bedroom?"* still knows what it follows.
+- **Calendar entries by voice**: *"Put the dentist on my calendar for Friday at 10"*, and *"Delete the dentist on Friday"*. It asks before removing anything you didn't name.
+- **Doors, windows and blinds**: *"Are all windows closed?"* reads the sensors, *"Close all blinds except the bedroom"* leaves the bedroom and the awning alone.
+- **Messages and moving music**: *"Tell Anna dinner is ready"*, *"Tell the kitchen…"*, *"Move the music to the bedroom"*.
+- **Voice recognition** *(optional)*: knows who is speaking, so each person gets their own memory. Runs inside Home Assistant, with no add-on and no cloud.
+- **Find my phone**: *"Where is my phone?"* rings it loudly, even on silent.
+- **Where people are**: *"Where's my wife?"*, *"Is Anna home?"*, *"Who is home?"* are answered from Home Assistant's people.
+- **Light colours**: *"Make the light warm white"* or *"turn the lights blue"* changes the lights in the room you are in. White shades become a colour temperature.
+- A short *"One second."* while a slow web look-up runs, so silence never means the question got lost.
 
 **⚡ Fast on local hardware**
 - A deterministic shortcut layer answers common commands in **~0.01–0.05 s** without calling the LLM.
@@ -65,257 +248,187 @@ It is designed around a constraint most agents ignore: **a 7–12B model on an 8
 - Home Assistant's own Assist tools built in: devices, sensors, exposed scripts, to-do lists and calendars work right after setup, with no MCP server or token to set up.
 - More tools from MCP servers over HTTP and stdio.
 - An `ai_task` entity so automations can use the same model.
-- Per-user long-term memory (`remember` / `recall` / `forget`).
-- A diary of earlier conversations, recalled on any device days later; per person, private by default.
+- Per-user long-term memory (`remember` / `recall` / `forget`) and cross-device conversation diary.
 - **7 languages**: English, German, French, Spanish, Portuguese, Polish and Dutch. A new language is a single YAML file.
 
-> [!NOTE]
-> **Tested end-to-end with Ollama.** The OpenAI-compatible endpoint should work with the other backends, but only Ollama has been run against the prompt suites below. Reports from OpenAI, xAI, LM Studio or llama.cpp setups are welcome.
-
-## Quick start
-
-### Requirements
-
-- Home Assistant **2025.7.0** or newer
-- [HACS](https://hacs.xyz/docs/use/)
-- A reachable LLM endpoint:
-
-| Backend | Provider URL | API key |
-|---------|--------------|---------|
-| [Ollama](https://ollama.com) *(recommended)* | `http://<host>:11434/v1` | — |
-| LM Studio | `http://<host>:1234/v1` | — |
-| llama.cpp server | `http://<host>:8080/v1` | — |
-| OpenAI | `https://api.openai.com/v1` | required |
-| xAI Grok | `https://api.x.ai/v1` | required |
-
-### Install
-
-[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bigbabol1&repository=AI-plugin&category=integration)
-
-1. In **HACS → ⋮ → Custom repositories**, add `https://github.com/bigbabol1/AI-plugin` with category **Integration**. You can also use the button above.
-2. Install **AI Plugin**, then **restart Home Assistant**.
-3. Add the integration:
-
-   [![Open your Home Assistant instance and start setting up AI Plugin.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ai_plugin)
-
-4. Go to **Settings → Voice assistants**, open your assistant and set **Conversation agent** to *AI Plugin*.
-
-Every setting can be changed later under **Settings → Devices & services → AI Plugin → Configure**.
-
-## Choosing a model
-
-**Tool-calling quality matters more than any benchmark score.** A model that hedges or asks clarifying questions instead of acting is a poor fit for a home agent, however well it scores elsewhere.
-
-### Recommended for 8 GB of VRAM
-
-| Model | Why | Median turn |
-|-------|-----|-------------|
-| **`hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS`** | Same Gemma 4 12B at 4 bits. Holds up in long conversations where the 3-bit quant stalls, at the same generation speed. | — |
-| **`hf.co/unsloth/gemma-4-12B-it-GGUF:UD-Q3_K_XL`** | The previous recommendation: 0.4 GB smaller and fully in VRAM, but in long voice conversations it can stall on a turn and answer nothing. | ~3.6 s |
-| **`qwen3.5:9b`** | Faster, says so when it lacks data, validated against the voice suite | ~2.9 s |
-
-```bash
-ollama pull hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS
-```
-
-IQ4_XS has not yet been run through the voice suite, so it has no median turn time yet. In the stall tests below it answered cached turns in about a second.
-
-Avoid `granite4.1:8b` and `lfm2.5:8b` on non-English installs. Check `ollama ps` at your real context window. If part of the model runs on the CPU, measure tokens per second before keeping it. On Ollama 0.40 IQ4_XS shows 5 % CPU at a 16K context with no measurable slowdown, but a larger share can multiply latency.
+</details>
 
 <details>
-<summary><b>Benchmark details</b> (RTX 3060 Ti 8 GB, Ollama)</summary>
+<summary><b>🤖 Choosing a model, recommended settings &amp; upstream benchmarks</b></summary>
 
 <br>
 
-Pass counts alone hide *how* a model fails, so these notes separate honest misses from confident fabrications. In a home agent, that difference matters most.
+**Tool-calling quality matters more than any benchmark score.** A model that hedges or asks clarifying questions instead of acting is a poor fit for a home agent, however well it scores elsewhere.
 
-- **Voice suite (July 2026, plugin v0.9.35).** 29 read-only prompts through HA Assist in voice mode, covering clock and sun, room sensors, "which lights are on", inventory, climate, local and named-place weather, web search, bare-noun sanity checks and media.
-  - `qwen3.5:9b` scored 93 %, and every miss was an honest one.
-  - `qwen3:8b` and `qwen3-abliterated:8b` reached 86–90 % but fabricated answers.
-  - `mistral:7b` scored 86 % and `gemma4:e2b` 69 %.
-  - Cloud `qwen3.5:397b` (100 %) served as the ceiling.
-- **Adversarial tool calling (August 2026).** 10 German edge cases × 3 runs.
-  - `gemma-4-12B UD-Q3_K_XL` scored 100 % with exact area names; `qwen3.5:9b` scored 70 %.
-  - `granite4.1:8b` and `lfm2.5:8b` corrupted or translated non-English room names.
-  - Larger Gemma 4 12B quants (IQ4_XS, Q4_K_M) spilled onto the CPU at a 16K context on the Ollama of the time. See October for IQ4_XS on Ollama 0.40.
-- **Multi-turn conversations (August 2026).** 11 German turns × 2 passes on `gemma-4-12B UD-Q3_K_XL`, with every action verified in HA's state history.
-  - Ambiguous names, ellipsis, pronouns, two devices in one turn, self-correction and area references all passed. Median turn: 4.5 s.
-  - Changing `top_p` or temperature (0.3–1.0), using a 32K window, or enabling schema pruning changed nothing. Raising Max Tokens to 1024 only made failing turns slower.
-- **LFM2.5 QAD checkpoints (August 2026).** Very fast, but they did not converge in the plugin's multi-step tool loop.
-- **Stalled turns in long conversations (October 2026, Ollama 0.40.4).** Repeated voice requests like "too bright" and "a bit dark in here" in one long conversation sometimes made `UD-Q3_K_XL` produce nothing. With thinking off, it slipped into hidden thinking that never ended. It used all of Max Tokens, returned no text and no tool call, and after ~15 s the user heard the fallback. Five requests captured from real sessions, each in two prompt layouts, plus one reconstructed turn, were replayed 3 times each (11 cases):
-  - `UD-Q3_K_XL`: 9 of 33 runs empty.
-  - `IQ4_XS`: 0 of 33 empty, all with the right tool (dim, brighten, or a Wikipedia lookup for a trivia question).
-  - Generation speed was the same for both: 39 tokens/s on an RTX 3060 Ti.
-  - Neither a larger Max Tokens (2048) nor Ollama's built-in Gemma 4 template fixed `UD-Q3_K_XL`. That points to the 3-bit quant: Google's 4-bit QAT build of the same model did not stall either.
+### Recommended local models
 
-</details>
+| Model | VRAM | Why | Median turn |
+|-------|------|-----|-------------|
+| **`gemma4:12b-it-qat`** | 12–16 GB | Google's 4-bit QAT build of Gemma 4 12B — strong German/English tool calling, native multimodal camera vision, and no long-conversation stalls. | — |
+| **`hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS`** | 8 GB | Same Gemma 4 12B at 4 bits. Holds up in long conversations where the 3-bit quant stalls, at the same generation speed. | — |
+| **`hf.co/unsloth/gemma-4-12B-it-GGUF:UD-Q3_K_XL`** | 8 GB | 0.4 GB smaller and fully in VRAM, but in long voice conversations it can stall on a turn and answer nothing. | ~3.6 s |
+| **`qwen3.5:9b`** | 8 GB | Faster, says so when it lacks data, validated against the voice suite. | ~2.9 s |
+
+```bash
+ollama pull gemma4:12b-it-qat
+# or for 8 GB VRAM:
+ollama pull hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS
+```
+
+Avoid `granite4.1:8b` and `lfm2.5:8b` on non-English installs. Check `ollama ps` at your real context window. If part of the model runs on the CPU, measure tokens per second before keeping it.
 
 ### Recommended settings
 
 | Setting | Value |
 |---------|-------|
-| Model | `hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS`, or `UD-Q3_K_XL` / `qwen3.5:9b` if it does not fit |
-| Temperature | `1.0` for gemma-4-12B (0.3–1.0 made no difference to the actions taken, and 0.3 did not prevent the stalls). `qwen3.5:9b` was benchmarked at 0.2. |
+| Model | `gemma4:12b-it-qat` (12–16 GB), `hf.co/unsloth/gemma-4-12B-it-GGUF:IQ4_XS`, or `qwen3.5:9b` (8 GB) |
+| Temperature | `1.0` for Gemma 4 12B (`0.2` for `qwen3.5:9b`) |
 | top_p | `0.4` |
-| Context Window | **`16384`** minimum. Stay under ~24 000 on 8 GB with the default KV cache; 32K fits with `OLLAMA_KV_CACHE_TYPE=q8_0`. |
+| Context Window | **`16384`** minimum. Stay under ~24 000 on 8 GB with default KV cache; 32K fits on 12–16 GB or with `OLLAMA_KV_CACHE_TYPE=q8_0`. |
 | Max Tokens (`num_predict`) | `512`. Raising it makes failing turns slower, not better. |
 | Keep-alive | `30m`, or `-1` on a dedicated GPU |
-| Web Search | DuckDuckGo (default), or Tavily/Brave with a key |
+| Web Search | DuckDuckGo (default), or Tavily/Brave/SearXNG |
 
-## Features in depth
+### Upstream benchmark notes (RTX 3060 Ti 8 GB, Ollama)
 
-### Follow-up listening
+- **Voice suite (July 2026, plugin v0.9.35):** 29 read-only prompts through HA Assist in voice mode. `qwen3.5:9b` scored 93 % with honest misses; `qwen3:8b` / `qwen3-abliterated:8b` reached 86–90 % but fabricated answers; `mistral:7b` 86 %; `gemma4:e2b` 69 %; cloud `qwen3.5:397b` 100 %.
+- **Adversarial tool calling (August 2026):** 10 German edge cases × 3 runs. `gemma-4-12B UD-Q3_K_XL` scored 100 % with exact area names; `qwen3.5:9b` scored 70 %; `granite4.1:8b` and `lfm2.5:8b` corrupted non-English room names.
+- **Multi-turn conversations (August 2026):** 11 German turns × 2 passes on `gemma-4-12B UD-Q3_K_XL`. Ambiguous names, ellipsis, pronouns, two devices in one turn, self-correction and area references all passed (median turn: 4.5 s).
+- **Stalled turns in long conversations (October 2026, Ollama 0.40.4):** 11 captured cases × 3 runs: `UD-Q3_K_XL` produced 9/33 empty runs; `IQ4_XS` produced 0/33 empty runs at the same 39 tokens/s. Google's 4-bit QAT build (`gemma4:12b-it-qat`) did not stall either.
+
+</details>
+
+<details>
+<summary><b>🎙️ Follow-up listening, Auto-Ducking &amp; Self-Echo Filter</b></summary>
+
+<br>
 
 After a spoken reply, the satellite can reopen its microphone so you can answer without the wake word. **Listen for a follow-up after voice replies** has three modes:
 
 | Mode | Behaviour |
 |------|-----------|
 | **Always** *(default)* | The microphone reopens after every reply. |
-| **Let the AI decide** | The microphone reopens only when the reply **ends with a question**. "Which room do you mean?" keeps listening. "The kitchen light is on." ends the turn. |
+| **Let the AI decide** | The microphone reopens only when the reply **ends with a question**. *"Which room do you mean?"* keeps listening. *"The kitchen light is on."* ends the turn. |
 | **Never** | Every turn ends after the reply. |
-
-In *Let the AI decide*, the question mark *is* the model's decision. This is the same signal Home Assistant's built-in LLM agents use. The voice prompt gains one rule: ask only when an answer is needed (a missing detail, a choice, a confirmation), and never close with filler like "Anything else?". So the setting adds no extra tool call or round trip, and it works with streaming.
 
 In every mode, the conversation still ends on a close phrase (*"thanks"*, *"bye"*, *"das war's"*, …), on a detected self-echo, and after a run of rapid chained turns.
 
-<details>
-<summary><b>Satellites that play replies on a separate speaker</b></summary>
-
-<br>
-
-A satellite that routes its reply audio to an external media player (Google/Cast, *Mic to MediaPlayer*) can hear its own TTS and treat it as a new turn. That is an acoustic feedback loop: the assistant talks to itself. Three tools address it:
-
-- **Self-echo filter** (Advanced → *Ignore the satellite hearing its own reply*, on by default). The plugin remembers what it just said on each device and silently drops any incoming voice turn that replays it: 70 % of the turn's word pairs, in order, within 30 s. A recognizable command or a bare "yes" is never dropped. The session stays open, so real follow-ups still work. This is the recommended fix.
-- **Quiet gap before listening again.** Above 0 s, the plugin reopens the microphone itself once the reply has finished playing in the room, instead of when the satellite's own playback ends.
-- **Force-end conversations on these satellites** (device list). A blunter guard that ends the session after one turn on the listed devices. Use it if STT garbles the echo too much for the filter to catch it.
+**Satellites playing replies on a separate speaker:**
+- **Self-echo filter (`CONF_SELF_ECHO_FILTER`):** Remembers what was just spoken on each device and silently drops any incoming voice turn that replays it (70 % of word pairs in order within 30 s) while keeping follow-up listening active on external satellites. Recognizable commands and bare *"yes"* are never dropped.
+- **Auto-ducking (`CONF_AUTO_DUCKING`):** Scoped strictly to voice satellite turns in this fork, keeping playing room speakers ducked across the entire conversation until playback ends.
+- **Quiet gap before listening again:** Above 0 s, the plugin reopens the microphone itself once the reply has finished playing in the room.
+- **Force-end conversations on these satellites:** Ends the session after one turn on listed devices if STT garbles echo too heavily for the filter to catch.
 
 </details>
 
-### Voice recognition
+<details>
+<summary><b>🗣️ Voice recognition (Local NVIDIA TitaNet-small)</b></summary>
 
-The assistant can tell who is speaking on a voice turn, so each person has their own memory: *"What's my favourite colour?"* gets your answer, not your partner's. It also decides whose phone *"Where is my phone?"* rings and who *"my wife"* is.
+<br>
 
-**Switch it on** under **Configure → Voice recognition → Settings → Recognise voices**. Then teach it each voice, either by saying *"Learn my voice, I am Anna"* to a satellite, or under **Voice recognition → Enroll a voice**. The satellite asks eight short questions; answer each in a full sentence. Nothing said during enrollment is carried out as a command, and *"stop"* ends it early. Voices are linked to Home Assistant's people, so add them under **Settings → People** first.
+The assistant can tell who is speaking on a voice turn, giving each person their own memory, deciding whose phone *"Where is my phone?"* rings, resolving *"my wife"*, and gating **Admin-MCP** permissions.
 
-**How it works.**
-- It runs entirely inside Home Assistant, on NumPy. Nothing is sent anywhere, and no add-on is needed.
-- The first time it is switched on, it downloads the voice model once (about 13 MB, NVIDIA TitaNet-small, Apache-2.0, from this repository's [`voice_model/`](voice_model/) folder) and checks it against pinned SHA-256 digests.
-- This integration's Assist pipelines are switched to a speech-to-text pass-through. It hands the audio to your speech-to-text engine unchanged and keeps a copy in memory for 30 seconds. Turning the feature off switches the pipelines back.
-- The fingerprint is computed while you are still speaking, so it adds no delay. It is used on turns that reach the AI and by [Find my phone](#find-my-phone). Home Assistant's own commands and the plugin's other shortcuts don't need it.
-- Only voice fingerprints are stored, never audio.
+**Setup:** Switch it on under **Configure → Voice recognition → Settings → Recognise voices**. Enroll each voice either by saying *"Learn my voice, I am Anna"* to a satellite, or under **Voice recognition → Enroll a voice** (eight short questions; *"stop"* ends early). Add people under **Settings → People** first.
 
-**When it names someone.** A person is named only when their score clears **Minimum match score** (default `0.35`) and beats the next person by **Minimum lead** (default `0.10`). It compares against samples recorded on the same kind of microphone first, because a bathroom satellite sounds very different from a ReSpeaker. A voice that matches no one closely enough is treated as unknown: it can still use the shared memory but cannot save to it, and the assistant says it could not tell who is speaking this time.
+**How it works:**
+- Runs entirely inside Home Assistant on NumPy — no add-on and no cloud.
+- Downloads NVIDIA TitaNet-small (~13 MB, Apache-2.0, pinned SHA-256) once from [`voice_model/`](voice_model/).
+- Switches this integration's Assist pipelines to an STT pass-through that buffers 30 s of audio in RAM; turning the feature off restores original pipelines.
+- Computes fingerprints while you speak (zero added delay) and stores only voiceprints, never raw audio.
+- **Fork improvements:** Also runs Voice-ID on signed-in Companion App devices when an audio clip is buffered, and clears the signed-in user fallback if Voice-ID does not match.
 
-**For better recognition**, enroll on each type of satellite you use. A voice enrolled only in the kitchen is recognised less often in the bathroom.
+A person is named only when their score clears **Minimum match score** (default `0.35`) and beats the next person by **Minimum lead** (default `0.10`). Enroll on each type of satellite microphone you use for best accuracy.
 
 > [!IMPORTANT]
-> Voice recognition is a convenience, not a security feature. It never authorises actions, and a similar voice or a recording can be taken for someone else.
+> Voice recognition is a convenience, not a cryptographic security feature. A similar voice or a recording can be mistaken for someone else.
 
-### Alarms, reminders and things to do later
+</details>
 
-Timers count down a length of time and only ring. These are for a clock time, and they are stored, so a restart does not lose them.
+<details>
+<summary><b>⏰ Alarms, reminders, scheduled actions &amp; voice timers</b></summary>
+
+<br>
+
+Timers count down a length of time. Alarms, reminders, and delayed commands target a clock time and are persisted across restarts.
 
 | You say | What happens |
 |---|---|
-| *"Set an alarm for 6:30 on Friday"*, *"Wake me up at 7"*, *"…every weekday"* | Speaks on this satellite every 10 seconds for up to 3 minutes: "Your alarm is ringing.", or what it is for if you said so ("Time to wake up", "The pasta is ready") |
+| *"Set an alarm for 6:30 on Friday"*, *"Wake me up at 7"*, *"…every weekday"* | Speaks on this satellite every 10 seconds for up to 3 minutes |
 | *"Stop"*, *"Snooze"*, *"Snooze for 5 minutes"* (while it rings) | Ends it, or rings again in 9 or 5 minutes |
 | *"Remind me to take out the trash tomorrow at 6"* | Spoken once here, and sent to your phone if the assistant knows who you are |
 | *"Turn off the lights in 30 minutes"*, *"At 10 dim the lights"* | Runs then as if you had just said it, in the same room |
 | *"What alarms do I have?"*, *"Cancel my alarm"* | Lists or cancels alarms, reminders and scheduled actions |
 
-- An alarm or reminder can go to another room: *"Set an alarm for 7 in the bedroom"*. That room needs a satellite.
-- If Home Assistant was down when something came due, an alarm or action still runs if it is less than 10 minutes late, and a reminder if it is less than 24 hours late. After that it is dropped and logged, so a light never switches off hours later.
-- A reminder that nothing could play or receive is left as a Home Assistant notification.
-- Repeats are `daily`, `weekdays`, `weekends`, `weekly` and `biweekly`.
+- Supports targeting another room's satellite (*"Set an alarm for 7 in the bedroom"*).
+- Missed due items after downtime still run if under 10 min late (alarms/actions) or under 24 h late (reminders), and drop cleanly afterwards.
+- Repeats support `daily`, `weekdays`, `weekends`, `weekly`, and `biweekly`.
+- Voice timers support `start_timer`, `cancel_timer`, `pause_timer`, `unpause_timer`, `increase_timer`, `decrease_timer`, and `timer_status`, plus this fork's fast-path shortcut, live dashboard slots, and custom `/media` chimes.
 
-### Messages and moving music
+</details>
+
+<details>
+<summary><b>💬 Messages, moving music, Calendar, Find my phone &amp; People locations</b></summary>
+
+<br>
+
+### Messages &amp; moving music
 
 | You say | What happens |
 |---|---|
-| *"Tell Anna dinner is ready"*, *"Send Anna a message that I am late"* | A notification on Anna's phone, with your name if the assistant knows who you are |
+| *"Tell Anna dinner is ready"*, *"Send Anna a message that I am late"* | Notification on Anna's phone, with your name if known |
 | *"Tell the kitchen dinner is ready"* | Spoken on the satellite in that room |
 | *"Tell everyone dinner is ready"* | Home Assistant's own broadcast to every satellite |
-| *"Remind Anna to buy milk at 5"* | The reminder goes to Anna's phone, or is spoken here if she has none |
-| *"Move the music to the bedroom"*, *"Take this to the kitchen"* | What is playing moves to that room. Needs Music Assistant |
+| *"Remind Anna to buy milk at 5"* | Reminder sent to Anna's phone, or spoken here if she has none |
+| *"Move the music to the bedroom"*, *"Take this to the kitchen"* | Moves current playback via Music Assistant |
 
-*"Play some music"* with nothing named plays from the taste you saved (*"Remember that I like jazz and soul"*): a different playlist each time, shuffled. With none saved, it asks what you would like to hear.
-
-While a satellite listens, speakers playing in its room go down to 20% of their volume, so it can tell your voice from the music. They come back as soon as it has your words. This follows the satellite's state, so it should work on any satellite, though it has only been used with Mic to MediaPlayer so far. A *"turn it down"* changes the volume by 10 points.
-
-With voice recognition on, music that wakes a satellite by mistake gets no answer: a word or two transcribed from at least 6 seconds of audio, not a command, in a voice that matches nobody, with music playing in the room. Lyrics that come out as a full sentence still get an answer.
+*"Play some music"* plays shuffled playlists matching your saved taste (*"Remember that I like jazz and soul"*). With voice recognition on, stray music lyrics waking a satellite in an unknown voice are suppressed.
 
 ### Calendar entries
 
-*"Put the dentist on my calendar for Friday at 10"* adds an event, one hour long unless you say otherwise, or all day if you give no time. A birthday repeats every year on its own, and *"every week"* or *"every month"* works too. A one-off date that has already passed is refused rather than added out of sight. It only uses calendars that are **exposed to Assist** and accept new events, such as a Local Calendar. With several, it asks which. If none qualifies it says so. Reading a calendar comes from Home Assistant's own tools and works the same way.
+*"Put the dentist on my calendar for Friday at 10"* adds a 1-hour event (or all-day without a time) to calendars **exposed to Assist** that accept new events (e.g. Local Calendar). Birthdays repeat yearly automatically; *"every week"* / *"every month"* are supported.
 
 ### Find my phone
 
-*"Where is my phone?"*, *"Ring my phone"*, *"Wo ist mein Handy?"*, or *"Where is Anna's phone?"* rings the phone through the Home Assistant Companion app, in all seven languages.
-
-- **Android** speaks a short line on the alarm channel at full volume. It plays on silent, and the phone's volume is restored afterwards.
-- **iPhone** gets a critical alert, the only sound an iPhone plays on mute. Allow **Critical Alerts** for the Home Assistant app in the iPhone's notification settings.
-- The phone rings three times, six seconds apart. The first ring is sent before the reply, so a failed push is reported instead of announced.
-- **Whose phone.** *"My phone"* means the phone of the speaker recognised by [voice recognition](#voice-recognition), or of the logged-in user in the app. A named person (*"Anna's phone"*) is found by name. If the speaker is unknown and the home has more than one phone, the assistant asks whose.
-- **Which phones.** A phone can ring when it runs the Companion app and its device tracker belongs to a person. The plugin finds it through Home Assistant's own links, so nothing has to be exposed to Assist.
-- If Home Assistant last placed the phone away from home, the reply says where.
+*"Where is my phone?"*, *"Ring my phone"*, *"Wo ist mein Handy?"*, or *"Where is Anna's phone?"* rings via the Companion app (three times, 6 s apart):
+- **Android:** Speaks on the alarm channel at full volume even on silent, then restores volume.
+- **iPhone:** Sends a Critical Alert (enable **Critical Alerts** for the HA app in iOS notification settings).
+- Uses Voice-ID, Companion App login, or the named person; reports the last known zone if away from home.
 
 ### Where people are
 
-*"Where's my wife?"*, *"Is Anna home?"* and *"Who is home?"* are answered from Home Assistant's **person** entities that are exposed to Assist. *"My wife"* or *"my husband"* is resolved through the speaker's saved facts, so tell it once: *"Remember that my wife is Anna."*
+*"Where's my wife?"*, *"Is Anna home?"*, and *"Who is home?"* read **person** entities exposed to Assist (and resolve relationships like *"my wife"* via saved facts). Exposing the Companion app's **Geocoded location** sensor adds the last street address when away.
 
-The answer is *at home*, *away*, or the name of the zone the person is in. When someone is away, the reply adds their last street address only if the Companion app's **Geocoded location** sensor on their phone is exposed too. Exposing a person tells the assistant whether they are home, not where they are.
+</details>
 
-### Voice timers
+<details>
+<summary><b>🧠 Long-term memory &amp; Conversation diary</b></summary>
 
-Timers are first-class tools: `start_timer`, `cancel_timer`, `pause_timer`, `unpause_timer`, `increase_timer`, `decrease_timer` and `timer_status`. A deterministic safety net treats the spoken utterance as the ground truth for the duration, so "10 seconds" never becomes 10 minutes, even if the model fills a slot wrongly.
+<br>
 
-- **Default.** HA sends the timer to the satellite, which shows the countdown and plays its ring locally. This needs timer-capable firmware, which HA Voice PE and current ESPHome satellites have.
-- **Announce mode** (Advanced → *Announce timers instead of on-device ring*). HA's TimerManager calls the plugin back when the timer expires. The plugin then plays a localized announcement ("Timer pasta is up.") through `mic_to_mediaplayer.announce` if that integration is installed, and `assist_satellite.announce` otherwise. It works on **any** device, including satellites whose own speaker is silenced or that have no timer firmware.
-  - Trade-off: no countdown LEDs and no local ring.
-  - Like all HA voice timers, these do not survive an HA restart.
+### Long-term memory (`remember` / `recall` / `forget`)
 
-### Long-term memory
+- Saved facts load into a late, cache-stable `[USER FACTS]` block so *"What's my…"* questions answer without a tool round trip.
+- Stored in plain text per HA user at `<config>/.ai_plugin_memory_<user_id>.json` (per person on satellites when Voice-ID is enabled; unknown voices cannot overwrite memory).
+- **Bring your own memory:** Turn off *Long-term memory* under Memory if you use an external memory server or MCP backend — tools, facts block, and rules are cleanly removed while stored files remain untouched on disk.
 
-The assistant remembers facts across conversations and across restarts:
+### Remembering earlier conversations (Diary)
 
-- *"Remember that I take my coffee black."* → `remember`
-- *"What did I tell you about my coffee?"* → answered from memory
-- *"Forget that I take my coffee black."* → `forget`
+- Ten minutes after a conversation goes quiet, the model saves up to three short notes (skipping device commands and small talk).
+- Uses a compact local semantic search model ([potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M), ~40 MB, MIT, in `memory_model/`) that searches across languages inside Home Assistant in under 1 ms per turn.
+- Stored in `<config>/.storage/ai_plugin_diary.<entry>`, auto-pruned after *Keep diary notes for* days (default 30), private per person unless *Share conversations between people* is enabled, and erasable via *"Forget our conversations"*.
 
-**Recall is usually free.** Saved facts are loaded into a `[USER FACTS]` block at the start of every turn. That block is a late, cache-stable system message, so the model answers "what's my…" questions without a tool round trip, and each round trip is a full extra generation pass on a small model.
+</details>
 
-**Per-user and plain text.** Facts are stored at `<config>/.ai_plugin_memory_<user_id>.json`, one file per HA user (`…_anonymous.json` for unauthenticated turns). The files are readable, so don't ask it to remember secrets.
+<details>
+<summary><b>🔌 Switching built-in tools off, AI Tasks, Web search &amp; MCP servers</b></summary>
 
-**Per person on satellites.** Voice turns from a satellite carry no HA user. With [voice recognition](#voice-recognition) on, a recognised speaker uses their own facts: the file of the HA user linked to their person, or one named after the person. When voice recognition is on but recognises no one, `remember` and `forget` refuse and say nothing was saved, so a fact never lands in a store that belongs to nobody.
-
-**Preferences apply everywhere.** A saved preference such as *"always use metric units"* applies to every answer, whatever the topic, not only to questions about you.
-
-**Bring your own memory.** Turn off *Long-term memory* under Memory to remove the three tools, the `[USER FACTS]` block and the memory rules from the prompt, for example when an MCP server provides the memory. Saved facts stay on disk and return when you turn it on again. With voice recognition on, the assistant still knows who is speaking, but nothing is stored per person.
-
-**`forget` won't delete the wrong fact.** It removes by the fact's number first and falls back to a fuzzy match. If the fact isn't stored, it says so instead of guessing.
-
-### Remembering earlier conversations
-
-Home Assistant keeps a conversation for a few minutes and only on the device it started on. The diary keeps what was talked about across devices, restarts and days:
-
-- *"What should I cook tonight?"* in the app, then twenty minutes later on a satellite: *"About the stir-fry you suggested, how do I start?"* → answered from the earlier conversation
-- *"Which film did I pick last weekend?"* → *"Arrival."*
-
-**How it works.** Ten minutes after a conversation goes quiet, the model writes up to three short notes about it: what was asked and the details it gave, such as steps, amounts, names, places and plans. Device commands, greetings and small talk are left out. On later turns that are not device commands, the three notes closest to what was said are added to the prompt, marked as notes that may have nothing to do with it, and the model decides whether one fits. In replay on gemma-4-12B, unrelated turns never brought up a note (0 of 50) and tool calls were unchanged, while follow-ups were answered from the right note 104 of 110 times when it was attached.
-
-**Search.** Notes are found by meaning, in any of the plugin's languages: an English question finds a German note. The search model, a cut-down [potion-multilingual-128M](https://huggingface.co/minishlab/potion-multilingual-128M) (MIT, about 40 MB, see `memory_model/`), is downloaded once and runs inside Home Assistant in well under a millisecond per turn. Until it is there, notes are found by their words.
-
-**Whose notes.** Each note records whose conversation it was: the person recognised by [voice](#voice-recognition), or the person signed in to the app. With *Share conversations between people* off (the default), everyone is shown only their own notes and those of voices that were not recognised. With it on, everyone's notes can come up in every conversation, always marked with whose conversation it was.
-
-**Privacy.** Notes stay in `<config>/.storage/ai_plugin_diary.<entry>` and are deleted after *Keep diary notes for* days (default 30). *"Forget our conversations"* deletes the speaker's own notes. Turning the diary off stops writing and recalling; notes still within their days come back when it is turned on again.
+<br>
 
 ### Switching built-in features off
 
-Configure → **Tools** lists what the assistant does itself besides controlling devices: timers, alarms and reminders, calendar entries, messages, announcements, moving music and finding a phone. All are on by default. Switch one off if your home already does it another way, for example with a script exposed to Assist or an MCP server. Its tools and prompt rules go, its shortcuts stand down, and a tool of the same name on an MCP server gets the call. With announcements off, Home Assistant's own `HassBroadcast` is left out too, so your own announcement script is the one the model sees. When the model says it did something and only one of your own tools ran, the reply is believed: no "I haven't changed anything" over it, and no retry that would set a second alarm. Alarms and reminders already set still ring after the switch.
+Under **Configure → Tools**, independently disable timers, alarms/reminders, calendar, messages, announcements, moving music, or find my phone if your home already handles them via custom scripts or MCP servers. Their tools, prompt rules, and shortcuts step aside cleanly.
 
 ### AI Tasks for automations
-
-The integration provides an `ai_task` entity, so automations and scripts can use the same model:
 
 ```yaml
 action: ai_task.generate_data
@@ -325,46 +438,62 @@ data:
   entity_id: ai_task.ai_plugin
 ```
 
-With a `structure` schema, the model returns matching JSON. Code fences are tolerated, and invalid JSON raises a clear error instead of returning garbage.
+Supports structured JSON output via `structure` schemas.
 
 ### Web search
 
 | Backend | Cost | API key | Notes |
 |---------|------|---------|-------|
-| **DuckDuckGo** *(default)* | Free | none | Zero config. Can be rate-limited. Ambiguous place names are disambiguated with your city and country. |
+| **DuckDuckGo** *(default)* | Free | none | Zero config. Disambiguates places with your city/country. |
 | Brave Search | Free tier / paid | [api.search.brave.com](https://api.search.brave.com/app/) | Reliable |
-| Tavily | Free tier / paid | [tavily.com](https://tavily.com/) | Best quality, AI-optimized |
+| Tavily | Free tier / paid | [tavily.com](https://tavily.com/) | AI-optimized results |
 | SearXNG | Free (self-hosted) | instance URL | Full control, no third-party traffic |
 
-To read one specific page, the model uses `browse_url`. It fetches through **Jina Reader** (`r.jina.ai`), so that URL is sent to a third party. Apart from your chosen search backend, this is the only outbound connection the integration makes.
+`browse_url` reads individual pages through **Jina Reader** (`r.jina.ai`).
 
 ### MCP servers
 
-Home Assistant's own tools (`HassTurnOn`, `HassClimateSetTemperature`, `GetLiveContext`, exposed scripts, to-do lists, calendar reads) are built in. They are the tools Home Assistant's MCP server offers, called inside Home Assistant the way its own conversation agents call them, so the *Model Context Protocol Server* integration and a long-lived token are not needed. Each call also knows which satellite and which person it is for. If that integration is set up, its choice of APIs and its read-only switch are used. A configured server pointing at this Home Assistant's own MCP server is skipped (the MCP list marks it as not used) and can be removed.
-
-You can add any other MCP tool server over HTTP or stdio. Presets are included for time, fetch, SQLite and more. Tool calls are capped at 15 s, so a hung server cannot stall a voice reply.
-
-## How it stays fast
-
-On a 7–12B model, latency is won or lost in three places:
-
-1. **Skip the LLM when possible.** The shortcut layer handles clock time, sunrise and sunset, "temperature in the bedroom", single-device on/off, covers, media transport, volume and mute. It calls HA registries and services directly, in all seven languages. Misses and anything ambiguous fall through to the LLM; the shortcut never guesses.
-2. **Reuse Ollama's prompt prefix cache.** The system prompt and tool list stay byte-stable across turns. Volatile context (`[CURRENT TIME]`, `[USER FACTS]`, `[LAST ACTION]`) goes in a late message, so each request pre-fills only the new tail, not the whole 3–6K-token prompt.
-3. **Speak before generation finishes.** Replies stream sentence by sentence into HA's chat log. Each sentence passes the same cleanup as the final reply, and the last sentence is held back. Streaming switches off on any turn where a verifier might still rewrite the reply.
-
-<details>
-<summary><b>Ollama tuning notes</b></summary>
-
-<br>
-
-- **Context window: one number.** The plugin uses Ollama's native `/api/chat` and sends `num_ctx` on every request. The *Context Window* setting therefore sets both the plugin's token budget and the context Ollama loads the model with. No Modelfile changes are needed.
-- **Temperature.** If a model asks clarifying questions instead of acting, lower it to 0.1–0.3.
-- **Reasoning models** (qwen3, deepseek-r1). The plugin sends `think: false` so answers land in `content`. Requires Ollama 0.20+.
-- **Keep-alive.** By default Ollama unloads a model after 5 minutes idle. On 8 GB, reloading a 6.5 GB model takes **~16 s**. Set *Ollama keep-alive* (`30m`, `24h`, or `-1`); it is sent per request and needs no server configuration.
+Home Assistant's own Assist tools (`HassTurnOn`, `HassClimateSetTemperature`, `GetLiveContext`, exposed scripts, to-do lists, calendar reads) are built in with no MCP server or long-lived token required. External HTTP and stdio MCP servers can be added with presets (time, fetch, SQLite, etc.), capped at a 15 s timeout per call, and optionally gated by this fork's **Admin-MCP mode**.
 
 </details>
 
+<details>
+<summary><b>⚡ How it stays fast &amp; Ollama tuning notes</b></summary>
+
+<br>
+
+1. **Skip the LLM when possible:** Deterministic shortcuts handle clock time, sunrise/sunset, room sensors, single-device on/off, covers, media transport, volume, mute, and (in this fork) timers in **~0.01–0.05 s**. Ambiguous phrases always fall through to the LLM.
+2. **Reuse Ollama's prompt prefix cache:** System prompt and tool schemas stay byte-stable across turns while volatile context (`[CURRENT TIME]`, `[USER FACTS]`, `[LAST ACTION]`) sits at the tail.
+3. **Ollama tuning notes:**
+   - **Context window:** Sent directly as `num_ctx` via Ollama's native `/api/chat` — no Modelfile edits required.
+   - **Temperature:** Lower to `0.1–0.3` if a model asks unnecessary clarifying questions instead of calling tools.
+   - **Reasoning models** (`qwen3`, `deepseek-r1`): Sends `think: false` by default (requires Ollama 0.20+).
+   - **Keep-alive:** Set *Ollama keep-alive* (`30m`, `24h`, or `-1`) so the model isn't unloaded after 5 minutes of idle time.
+
+</details>
+
+---
+
 ## Configuration reference
+
+### Fork-specific options
+
+| Option | Location | What it does |
+|--------|----------|--------------|
+| Admin-MCP mode &amp; admin persons | MCP Servers | Restricts MCP/admin tools and shortcuts to selected Home Assistant persons |
+| To-do prompt injector | Tools | Injects open items (summary + description, Jinja2-enabled) from a `todo.*` list |
+| Camera vision (`look_at_camera`) | Vision, Audio &amp; Voice | Enables camera inspection tool &amp; multimodal image attachment pipeline |
+| Multimodal audio input | Vision, Audio &amp; Voice | Enables multimodal audio input forwarding |
+| Auto-ducking | Vision, Audio &amp; Voice | Ducks room media players during voice satellite turns until playback finishes |
+| Timer announcement chime | Vision, Audio &amp; Voice | Optional `/media` audio file or satellite default preannounce chime before timer speech |
+| Ephemeral prefixes | Memory / Advanced | Comma-separated prefixes (e.g. `[Durchsage]`) excluded from history &amp; diary |
+| Offline Assist fallback | Advanced | Falls back to native HA Assist when the local LLM host is offline |
+| Background voice prompt warmup | Advanced | Pre-warms Ollama's KV prefix cache in the background |
+
+<details>
+<summary><b>All upstream configuration options</b></summary>
+
+<br>
 
 | Option | Default | What it does |
 |--------|---------|--------------|
@@ -372,46 +501,49 @@ On a 7–12B model, latency is won or lost in three places:
 | Context Window | `16384` | Token budget **and** Ollama `num_ctx` |
 | Summarization | on | Condenses old turns in the background near the limit |
 | Voice mode | off | Forces the compact voice prompt, even for text |
-| Listen for a follow-up | Always | Always / Let the AI decide / Never (see [Follow-up listening](#follow-up-listening)) |
+| Listen for a follow-up | Always | Always / Let the AI decide / Never |
 | Quiet gap before listening again | `0` s | Above 0, the plugin reopens the microphone itself once the room is quiet |
 | Enable thinking | off | Lets reasoning models emit chain-of-thought (slower; disables streaming) |
 | Max tool iterations | `10` | Cap on LLM↔tool round trips per turn |
 | Timeout | `30` s | Per LLM call. MCP tools have their own 15 s cap. |
-| Temperature / top_p / Max tokens | unset | Sampling. 1.0 / 0.4 / 512 recommended for gemma-4-12B. |
+| Temperature / top_p / Max tokens | unset | Sampling. `1.0` / `0.4` / `512` recommended for Gemma 4 12B. |
 | Ollama keep-alive | unset | Keeps the model in VRAM between requests |
-| Prune tool schemas | off | Per-message schema pruning. Defeats the prefix cache, so leave it off. |
-| Announce timers | off | Timer completions play on a media player instead of the on-device ring |
-| Long-term memory | on | `remember` / `recall` / `forget` and the saved facts. Off if you bring your own memory; saved facts are kept (see [Long-term memory](#long-term-memory)) |
-| Remember a satellite's conversation | `15` min | How long a satellite keeps its conversation between turns (0–360). 0 starts over with each new Home Assistant conversation |
-| Remember earlier conversations | on | The diary (see [Remembering earlier conversations](#remembering-earlier-conversations)) |
-| Keep diary notes for | `30` days | Older notes are deleted |
-| Share conversations between people | off | Off: each person sees their own notes and those of unrecognised voices |
-| Tools | all on | Timers, alarms and reminders, calendar, messages, announcements, moving music, find my phone, each one on or off (see [Switching built-in features off](#switching-built-in-features-off)) |
-| Recognise voices | off | Speaker recognition for per-person memory (see [Voice recognition](#voice-recognition)) |
-| Allow starting enrollment by voice | on | "Learn my voice, I am Anna" starts enrollment on that satellite |
-| Minimum match score | `0.35` | Higher means fewer wrong names and more "unknown" |
-| Minimum lead over the next person | `0.10` | How clearly the best match must beat the second |
-| Ignore the satellite hearing its own reply | on | Self-echo filter |
-| Force-end conversations on these satellites | none | Feedback-loop guard for setups with TTS on a separate speaker |
-| Location bias | on | Scopes "near me" searches to your home (fails open) |
-| Location entity | unset | Live location source instead of HA's home coordinates |
+| Prune tool schemas | off | Per-message schema pruning (defeats prefix cache; leave off) |
+| Announce timers | off | Timer completions play on a media player/satellite instead of on-device ring |
+| Long-term memory | on | `remember` / `recall` / `forget` and saved facts |
+| Remember a satellite's conversation | `15` min | How long a satellite keeps its conversation between turns (`0–360`) |
+| Remember earlier conversations | on | Cross-device semantic diary |
+| Keep diary notes for | `30` days | Older notes are deleted automatically |
+| Share conversations between people | off | Off: each person sees only their own notes and unrecognised voices |
+| Tools | all on | Toggle timers, alarms/reminders, calendar, messages, announcements, moving music, find my phone |
+| Recognise voices | off | Local speaker recognition (TitaNet-small) |
+| Allow starting enrollment by voice | on | *"Learn my voice, I am Anna"* starts enrollment on that satellite |
+| Minimum match score / lead | `0.35` / `0.10` | Voice-ID matching thresholds |
+| Ignore satellite self-echo | on | Self-echo filter (`CONF_SELF_ECHO_FILTER`) |
+| Force-end conversations on satellites | none | Feedback-loop guard for setups with TTS on a separate speaker |
+| Location bias / entity | on / unset | Scopes *"near me"* searches to home coordinates or a live tracker |
+
+</details>
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| "Cannot connect" during setup | The Provider URL must end in `/v1` and be reachable from the HA host. |
-| "Model reports no tool-calling capability" | The config flow checked Ollama's `/api/show`. Pick a tool-capable model. |
-| Model asks questions instead of acting | Lower the temperature to 0.1–0.3, or use a stronger tool-calling model. |
-| Slow first reply after a quiet period | Set **Ollama keep-alive**. |
-| Replies don't start speaking early | Streaming needs the Ollama backend and a streaming-capable TTS engine. Other setups get the full reply at once. |
-| *Let the AI decide* listens after every reply | The model is closing with filler questions. Add "Do not end with a question unless you need an answer" to the system prompt, or try a stronger model. |
-| The assistant answers itself in a loop | Replies are playing on a separate speaker. See [Follow-up listening](#follow-up-listening). |
-| Timer LEDs count down but there's no sound | The ring plays on the satellite's own speaker. Enable **Announce timers**. |
+| "Cannot connect" during setup | Ensure the Provider URL ends in `/v1` and is reachable from the HA host. |
+| Local LLM PC is asleep / offline | Enable **Offline Assist fallback** so basic smart-home commands continue via native HA Assist. |
+| `sensor.ai_plugin_assist_status` stays on `listening` | Update to latest `main` — STT `try/finally` cleanup and the 25 s auto-idle watchdog clear cancelled or empty turns automatically. |
+| Dashboard timer card stays hidden | Ensure **Tools → Timers** is enabled and verify `timer.ai_plugin_1` under Developer Tools → States while a timer is running. |
+| Chime dropdown is empty | Place `.flac`, `.mp3`, or `.wav` files inside Home Assistant's `/media` directory and reopen **Configure → Vision, Audio &amp; Voice**. |
+| Automated announcements clutter chat history | Add your prefix (e.g. `[Durchsage]`) to **Ephemeral prefixes** and start automated prompts with that prefix. |
+| Guest cannot control devices | Expected when **Admin-MCP mode** is active — add the person to the authorized admin list under **MCP Servers** if desired. |
+| Assistant answers itself in a loop | Enable **Ignore satellite self-echo** or add the device to **Force-end conversations on these satellites**. |
+| Slow first reply after a quiet period | Set **Ollama keep-alive** (`30m` or `-1`) and optionally enable **Background voice prompt warmup**. |
+| Timer LEDs count down with no sound | Enable **Announce timers** (and pick an optional chime). |
+| Model reports no tool-calling capability | Pick a tool-capable model checked via Ollama's `/api/show`. |
 | Empty replies from reasoning models | Upgrade Ollama to 0.20+. |
-| My voice is often not recognised | Enroll again on that type of satellite: samples from the same kind of microphone count first. If it still misses, lower **Minimum match score** a little. |
-| The iPhone shows the find-my-phone notification but makes no sound | Allow **Critical Alerts** for the Home Assistant app in the iPhone's notification settings. |
-| "Where is Anna?" says it has no information | Expose Anna's **person** entity to Assist. For a street address when she is away, also expose her phone's *Geocoded location* sensor. |
+| Voice is often not recognised | Re-enroll on that specific satellite type or lower **Minimum match score** slightly. |
+| iPhone Find-my-phone alert makes no sound | Allow **Critical Alerts** for the Home Assistant app in iOS notification settings. |
+| *"Where is Anna?"* has no information | Expose Anna's **person** entity (and optionally her phone's *Geocoded location* sensor) to Assist. |
 
 ## Development
 
@@ -420,18 +552,14 @@ python -m venv .venv && .venv/bin/pip install -r requirements_test.txt
 .venv/bin/python -m pytest
 ```
 
-The unit suite runs against stubbed Home Assistant modules, so no HA install is needed. The suite mocks every LLM call. **`tests/eval/`** measures the real thing: it drives a live install through `/api/conversation/process`, scores replies against per-prompt rubrics, checks actions against live entity state, and reports pass rates and latency percentiles. See [`tests/eval/README.md`](tests/eval/README.md).
+The unit suite runs against stubbed Home Assistant modules with mocked LLM calls. **`tests/eval/`** runs against a live install through `/api/conversation/process` (see [`tests/eval/README.md`](tests/eval/README.md)).
 
-**Adding a language** means one YAML file: copy `i18n/en.yaml`, translate it, and open a PR. See [`i18n/CONTRIBUTING.md`](custom_components/ai_plugin/i18n/CONTRIBUTING.md).
+**Adding or editing a language:** Copy `i18n/en.yaml`, keep all template placeholders within the allowed schema (`area`, `label`, `name`, `place`, `time`, `unit`, `val`), and check [`i18n/CONTRIBUTING.md`](custom_components/ai_plugin/i18n/CONTRIBUTING.md).
 
-## License
+## License & Credits
 
-[PolyForm Noncommercial 1.0.0](LICENSE). Free to use, change and share for any
-noncommercial purpose: your own home, hobby projects, study, research, and charities, schools or
-public bodies. Commercial use, including selling it or bundling it into a paid product or service,
-needs a separate license; open an issue to ask. Contributions are accepted under the same terms.
-
-The optional voice-recognition model in [`voice_model/`](voice_model/) is NVIDIA TitaNet-small under the
-Apache License 2.0, not PolyForm; see [voice_model/README.md](voice_model/README.md).
-
-Release history is in [CHANGELOG.md](CHANGELOG.md).
+- **Original project:** [@bigbabol1/AI-plugin](https://github.com/bigbabol1/AI-plugin) — full credit for the foundation, voice architecture, benchmarks, and upstream documentation.
+- **Fork enhancements &amp; maintenance:** [@Gremkos/AI-plugin](https://github.com/Gremkos/AI-plugin).
+- **License:** [PolyForm Noncommercial 1.0.0](LICENSE). Free to use, change, and share for any noncommercial purpose (home use, hobby projects, study, research, charities, schools, or public bodies). Commercial use requires a separate license.
+- **Voice model:** The optional voice-recognition model in [`voice_model/`](voice_model/) is NVIDIA TitaNet-small under the Apache License 2.0 (see [`voice_model/README.md`](voice_model/README.md)).
+- Release history is in [CHANGELOG.md](CHANGELOG.md).
